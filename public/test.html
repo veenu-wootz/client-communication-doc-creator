@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Client Communication Doc Creator — local test</title>
+<style>
+  :root {
+    --ink: #111827; --muted: #6B7280; --border: #D9DCE1; --surface: #F5F6F8;
+    --accent: #0F4C5C; --accent-bg: #E3EDEF; --paper: #FFFFFF;
+    --danger: #B3261E;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif; color: var(--ink); background: var(--surface);
+    margin: 0; padding: 32px 16px 80px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
+  .card {
+    background: var(--paper); border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid.full { grid-template-columns: 1fr; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input[type=text], input[type=date], input[type=email], textarea, select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 5px;
+    font-size: 13px; font-family: inherit; background: var(--paper); color: var(--ink);
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  .field { margin-bottom: 12px; }
+  .row-item {
+    border: 1px solid var(--border); border-radius: 6px; padding: 14px; margin-bottom: 12px;
+    position: relative; background: #fbfbfc;
+  }
+  .row-item .row-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .row-item .row-head .tag { font-size: 11px; color: var(--muted); font-weight: bold; letter-spacing: .02em; }
+  .kind-toggle { display: flex; gap: 6px; }
+  .kind-toggle button {
+    font-size: 12px; padding: 5px 10px; border-radius: 14px; border: 1px solid var(--border);
+    background: var(--paper); color: var(--muted); cursor: pointer;
+  }
+  .kind-toggle button.active.query { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+  .kind-toggle button.active.update { background: #EEF0F2; color: var(--ink); border-color: #9aa3ad; }
+  .photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .photo-chip {
+    display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 5px; padding: 4px 6px; font-size: 11px; max-width: 160px;
+  }
+  .photo-chip img { width: 28px; height: 28px; object-fit: cover; border-radius: 3px; }
+  .photo-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .photo-chip button {
+    border: none; background: none; color: var(--danger); cursor: pointer; font-size: 13px; padding: 0 2px;
+  }
+  .add-photo-btn, .remove-row-btn, .add-row-btn {
+    font-size: 12px; padding: 6px 12px; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--paper); color: var(--ink); cursor: pointer;
+  }
+  .remove-row-btn { color: var(--danger); border-color: #f0d0cd; }
+  .add-row-btn { display: block; width: 100%; margin-top: 4px; border-style: dashed; color: var(--muted); }
+  .actions { position: sticky; bottom: 0; background: var(--surface); padding: 14px 0 4px; margin-top: 8px; }
+  .actions-inner { display: flex; gap: 10px; align-items: center; }
+  button.primary {
+    background: var(--accent); color: #fff; border: none; padding: 11px 18px; border-radius: 6px;
+    font-size: 13px; font-weight: bold; cursor: pointer;
+  }
+  button.primary:disabled { opacity: .5; cursor: default; }
+  button.secondary {
+    background: var(--paper); color: var(--ink); border: 1px solid var(--border); padding: 11px 18px;
+    border-radius: 6px; font-size: 13px; cursor: pointer;
+  }
+  #status { font-size: 12px; color: var(--muted); margin-left: 4px; }
+  #status.err { color: var(--danger); }
+  #status.ok { color: #146c2e; }
+  details { margin-top: 10px; }
+  details summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+  pre#jsonOut {
+    font-size: 11px; background: #0b1220; color: #cbd5e1; padding: 12px; border-radius: 6px;
+    overflow: auto; max-height: 260px; margin-top: 8px;
+  }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Client Communication Doc Creator</h1>
+  <p class="sub">Local test form — fills the same JSON shape Strike/Glide would send. Runs against this server's <code>/preview</code> and <code>/generate</code> routes.</p>
+
+  <div class="card">
+    <h2>Project details</h2>
+    <div class="grid">
+      <div class="field">
+        <label>Report title</label>
+        <input type="text" id="report_title" placeholder="Bracket Assembly — Phase 2">
+      </div>
+      <div class="field">
+        <label>Reference <span class="hint" style="display:inline">(part no., PO no., or any name)</span></label>
+        <input type="text" id="reference_name" placeholder="BRK-4471-B">
+      </div>
+      <div class="field">
+        <label>Addressed to</label>
+        <input type="text" id="addressee" placeholder="Mr. R. Iyer, Meridian Auto">
+      </div>
+      <div class="field">
+        <label>Created by</label>
+        <input type="text" id="created_by" placeholder="Priya Nair">
+      </div>
+      <div class="field">
+        <label>Created at</label>
+        <input type="date" id="created_at">
+      </div>
+    </div>
+    <div class="field">
+      <label>Additional information</label>
+      <textarea id="additional_details" placeholder="Following the design review on 28 Aug."></textarea>
+    </div>
+    <div class="field">
+      <label>Product photo (optional)</label>
+      <input type="file" id="product_photo" accept="image/*">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Send to</h2>
+    <div class="grid">
+      <div class="field">
+        <label>Your email (deck is sent here — you forward it to the client)</label>
+        <input type="email" id="to_email" placeholder="priya@wootz.work">
+      </div>
+      <div class="field">
+        <label>CC (optional)</label>
+        <input type="email" id="cc_email" placeholder="">
+      </div>
+    </div>
+    <p class="hint">Email only sends via "Generate &amp; Email", and only if the server has SMTP configured. "Download PPTX" never emails anything.</p>
+  </div>
+
+  <div class="card">
+    <h2>Queries &amp; updates</h2>
+    <div id="items"></div>
+    <button class="add-row-btn" id="addRow">+ Add another</button>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Show the JSON payload this will send</summary>
+      <pre id="jsonOut">—</pre>
+    </details>
+  </div>
+
+  <div class="actions">
+    <div class="actions-inner">
+      <button class="primary" id="btnDownload">Download PPTX</button>
+      <button class="secondary" id="btnEmail">Generate &amp; Email</button>
+      <span id="status"></span>
+    </div>
+  </div>
+</div>
+
+<template id="rowTemplate">
+  <div class="row-item" data-kind="query">
+    <div class="row-head">
+      <span class="tag">ITEM</span>
+      <div class="kind-toggle">
+        <button type="button" class="kind-query active">Query</button>
+        <button type="button" class="kind-update">Update</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Item name <span class="hint" style="display:inline">(the SKU or part this row is about — optional)</span></label>
+      <input type="text" class="f-item" placeholder="e.g. HEX NUT M12">
+    </div>
+    <div class="field">
+      <label>Title <span class="hint" style="display:inline">(leave blank to auto-title, if enrichment is on)</span></label>
+      <input type="text" class="f-title" placeholder="e.g. Fillet radius conflict">
+    </div>
+    <div class="field">
+      <label>Description</label>
+      <textarea class="f-desc" placeholder="Drawing shows R2.5 at the flange base but the GD&amp;T callout references R4. Confirm which governs."></textarea>
+    </div>
+    <div class="field">
+      <label>Photos (up to 4)</label>
+      <input type="file" class="f-photos" accept="image/*" multiple>
+      <div class="photos"></div>
+    </div>
+    <button type="button" class="remove-row-btn">Remove item</button>
+  </div>
+</template>
+
+<script>
+const MAX_PHOTOS = 4;
+const itemsEl = document.getElementById('items');
+const rowTpl = document.getElementById('rowTemplate');
+
+function addRow(kind = 'query') {
+  const node = rowTpl.content.firstElementChild.cloneNode(true);
+  node.dataset.kind = kind;
+  node.dataset.photos = '[]'; // not used directly — photos live in a JS array via closure below
+  node._photos = []; // { name, dataUrl }
+
+  const qBtn = node.querySelector('.kind-query');
+  const uBtn = node.querySelector('.kind-update');
+  function setKind(k) {
+    node.dataset.kind = k;
+    qBtn.classList.toggle('active', k === 'query');
+    qBtn.classList.toggle('query', true);
+    uBtn.classList.toggle('active', k === 'update');
+    uBtn.classList.toggle('update', true);
+  }
+  setKind(kind);
+  qBtn.addEventListener('click', () => setKind('query'));
+  uBtn.addEventListener('click', () => setKind('update'));
+
+  node.querySelector('.remove-row-btn').addEventListener('click', () => node.remove());
+
+  const fileInput = node.querySelector('.f-photos');
+  const photosBox = node.querySelector('.photos');
+
+  function renderPhotos() {
+    photosBox.innerHTML = '';
+    node._photos.forEach((p, i) => {
+      const chip = document.createElement('div');
+      chip.className = 'photo-chip';
+      chip.innerHTML = `<img src="${p.dataUrl}"><span>${p.name}</span>`;
+      const rm = document.createElement('button');
+      rm.textContent = '✕';
+      rm.type = 'button';
+      rm.addEventListener('click', () => { node._photos.splice(i, 1); renderPhotos(); });
+      chip.appendChild(rm);
+      photosBox.appendChild(chip);
+    });
+  }
+
+  fileInput.addEventListener('change', async () => {
+    const files = Array.from(fileInput.files || []);
+    for (const file of files) {
+      if (node._photos.length >= MAX_PHOTOS) {
+        setStatus(`Only the first ${MAX_PHOTOS} photos per item are used — the rest were skipped.`, 'err');
+        break;
+      }
+      const dataUrl = await readAsDataUrl(file);
+      node._photos.push({ name: file.name, dataUrl });
+    }
+    fileInput.value = '';
+    renderPhotos();
+  });
+
+  itemsEl.appendChild(node);
+  return node;
+}
+
+function readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+document.getElementById('addRow').addEventListener('click', () => addRow('query'));
+
+// Product photo preview holder
+let productPhotoData = null;
+document.getElementById('product_photo').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  productPhotoData = file ? await readAsDataUrl(file) : null;
+});
+
+function setStatus(text, cls) {
+  const el = document.getElementById('status');
+  el.textContent = text;
+  el.className = cls || '';
+}
+
+function buildPayload() {
+  const val = (id) => document.getElementById(id).value.trim();
+
+  const items = Array.from(itemsEl.querySelectorAll('.row-item')).map((node) => {
+    const item_name = node.querySelector('.f-item').value.trim();
+    const title = node.querySelector('.f-title').value.trim();
+    const description = node.querySelector('.f-desc').value.trim();
+    const needs_response = node.dataset.kind === 'query';
+    const images = (node._photos || []).map((p) => ({ path: p.dataUrl, caption: '' }));
+    return { item_name, title, description, needs_response, images };
+  }).filter((it) => it.title || it.description || it.images.length);
+
+  const payload = {
+    report_title: val('report_title'),
+    reference_name: val('reference_name'),
+    addressee: val('addressee'),
+    additional_details: val('additional_details'),
+    created_by: val('created_by'),
+    created_at: val('created_at'),
+    to_email: val('to_email'),
+    cc: val('cc_email'),
+    items,
+  };
+  if (productPhotoData) payload.product_photo = productPhotoData;
+
+  return payload;
+}
+
+function refreshJsonPreview() {
+  const p = buildPayload();
+  // Trim data URIs in the preview so it stays readable — the real request sends them in full.
+  const trimmed = JSON.parse(JSON.stringify(p));
+  const shorten = (s) => (typeof s === 'string' && s.startsWith('data:') ? s.slice(0, 40) + '…(truncated)' : s);
+  if (trimmed.product_photo) trimmed.product_photo = shorten(trimmed.product_photo);
+  (trimmed.items || []).forEach((it) => (it.images || []).forEach((im) => (im.path = shorten(im.path))));
+  document.getElementById('jsonOut').textContent = JSON.stringify(trimmed, null, 2);
+}
+
+itemsEl.addEventListener('input', refreshJsonPreview);
+itemsEl.addEventListener('change', refreshJsonPreview);
+document.querySelectorAll('.card input, .card textarea').forEach((el) => {
+  el.addEventListener('input', refreshJsonPreview);
+  el.addEventListener('change', refreshJsonPreview);
+});
+
+async function submit(route, mode) {
+  const payload = buildPayload();
+  if (!payload.items.length) {
+    setStatus('Add at least one query or update first.', 'err');
+    return;
+  }
+
+  const btn = mode === 'download' ? document.getElementById('btnDownload') : document.getElementById('btnEmail');
+  btn.disabled = true;
+  setStatus(mode === 'download' ? 'Rendering…' : 'Sending to the server…', '');
+
+  try {
+    const res = await fetch(route, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (mode === 'download') {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const slides = res.headers.get('X-Slide-Count');
+      const queries = res.headers.get('X-Query-Count');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (payload.report_title || 'document') + '.pptx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setStatus(`Downloaded — ${slides || '?'} slides, ${queries || '?'} queries.`, 'ok');
+    } else {
+      const out = await res.json().catch(() => ({}));
+      setStatus('Sent to the server for processing. Check the server log / your inbox — email only goes out if SMTP is configured.', 'ok');
+    }
+  } catch (e) {
+    setStatus('Failed: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('btnDownload').addEventListener('click', () => submit('/preview', 'download'));
+document.getElementById('btnEmail').addEventListener('click', () => submit('/generate', 'email'));
+
+// Seed with today's date and three example rows so the format is obvious.
+document.getElementById('created_at').value = new Date().toISOString().slice(0, 10);
+addRow('query');
+addRow('update');
+addRow('query');
+document.querySelectorAll('.row-item')[0].querySelector('.f-item').value = 'HEX NUT M12';
+document.querySelectorAll('.row-item')[0].querySelector('.f-title').value = 'Fillet radius conflict';
+document.querySelectorAll('.row-item')[0].querySelector('.f-desc').value = 'Drawing shows R2.5 at the flange base but the GD&T callout references R4. Confirm which governs.';
+document.querySelectorAll('.row-item')[1].querySelector('.f-title').value = 'Fixture design complete';
+document.querySelectorAll('.row-item')[1].querySelector('.f-desc').value = 'Fixture design is complete and released to the shop floor.';
+document.querySelectorAll('.row-item')[2].querySelector('.f-title').value = 'Surface finish on face B';
+document.querySelectorAll('.row-item')[2].querySelector('.f-desc').value = 'Sheet 3 says Ra 0.8, the drawing says Ra 1.6. Which governs?';
+refreshJsonPreview();
+</script>
+</body>
+</html>

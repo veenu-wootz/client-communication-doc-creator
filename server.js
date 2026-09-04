@@ -1,0 +1,131 @@
+/**
+ * server.js — Strike/Glide webhook in, formatted deck out.
+ *
+ *   POST /generate   parse → enrich → fetch images → plan → render → deliver
+ *   GET  /           health
+ *   POST /preview    same pipeline, returns the .pptx directly (no delivery)
+ *
+ * Responds to the webhook immediately and finishes the work in the background,
+ * the way qualityinspectionreport/server.js does — Strike and Glide both time
+ * out and retry otherwise, which would generate the deck twice.
+ */
+
+require('dotenv').config();
+
+const path = require('path');
+const express = require('express');
+
+const { parseStrikePayload } = require('./src/input/parseStrikePayload');
+const { enrich } = require('./src/input/enrich');
+const { prepareImages } = require('./src/media/prepareImages');
+const { planSlides } = require('./src/plan/planner');
+const { renderPptx } = require('./src/render/renderPptx');
+const { sendDeckEmail } = require('./src/deliver/sendEmail');
+const { uploadDeck } = require('./src/deliver/upload');
+const { writeDeckUrl } = require('./src/deliver/glideWrite');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
+// Local test form — a single static HTML file, no build step. Open
+// http://localhost:PORT/test.html and it fills the same JSON shape Strike/Glide
+// would send, calling /preview (download) or /generate (email) on this server.
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.use(express.json({ limit: '50mb' }));
+
+const safe = (s) => String(s || 'document').replace(/[^a-zA-Z0-9\-_. ]/g, '_').trim();
+
+/** Everything from raw webhook body to a rendered deck. Shared by both routes. */
+async function build(body) {
+  const parsed = parseStrikePayload(body);
+  console.log(`  parsed: ${parsed.items.length} rows, report "${parsed.document.report_title || '(none)'}"`);
+
+  const enriched = await enrich(parsed.items);
+  const prepared = await prepareImages({ document: parsed.document, items: enriched.items });
+
+  const plan = planSlides(prepared.document);
+  plan.meta.warnings.push(...(parsed.warnings || []), ...enriched.warnings, ...prepared.warnings);
+
+  const buffer = await renderPptx(plan);
+  const filename = `${safe(parsed.document.report_title)} — ${plan.meta.queryCount} queries — ${parsed.document.created_at}.pptx`;
+
+  return { parsed, plan, buffer, filename };
+}
+
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'Client Communication Doc Creator', version: '1.0.0' });
+});
+
+app.post('/generate', async (req, res) => {
+  const started = Date.now();
+
+  // Acknowledge before doing the work, so the no-code platform does not retry.
+  res.json({ success: true, message: 'Received, generating' });
+
+  try {
+    console.log('\n━━━━━━ /generate ━━━━━━');
+    const { parsed, plan, buffer, filename } = await build(req.body);
+    console.log(`  planned ${plan.meta.totalSlides} slides — ${plan.meta.queryCount} queries, ${plan.meta.updateCount} updates`);
+    console.log(`  rendered ${(buffer.length / 1024).toFixed(0)} KB`);
+
+    // Optional, in order. Each one skipping is normal, not an error.
+    const upload = await uploadDeck(buffer, filename);
+    if (upload.url) {
+      try {
+        await writeDeckUrl(parsed.writeback, upload.url);
+      } catch (e) {
+        console.warn(`  glide write failed (non-fatal): ${e.message}`);
+      }
+    } else {
+      await writeDeckUrl(parsed.writeback, null);
+    }
+
+    // The guaranteed delivery path — always last, always attempted.
+    await sendDeckEmail(plan, buffer, filename, parsed.delivery, upload.url);
+
+    for (const w of plan.meta.warnings) console.log(`  ⚠ ${w}`);
+    console.log(`✓ done in ${((Date.now() - started) / 1000).toFixed(1)}s — ${filename}\n`);
+  } catch (err) {
+    // The response already went out above; never try to send a second one.
+    console.error('✗ generate failed:', err);
+  }
+});
+
+/** Same pipeline, deck returned inline. For testing without SMTP or S3. */
+app.post('/preview', async (req, res) => {
+  try {
+    const { plan, buffer, filename } = await build(req.body);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.setHeader('X-Slide-Count', String(plan.meta.totalSlides));
+    res.setHeader('X-Query-Count', String(plan.meta.queryCount));
+    res.send(buffer);
+  } catch (err) {
+    console.error('✗ preview failed:', err);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  }
+});
+
+// Only listen when run directly, so tests can import build() without a port.
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`\nClient Communication Doc Creator on port ${PORT}`);
+    const note = (ok, label) => console.log(`  ${ok ? '✓' : '·'} ${label}${ok ? '' : ' (will be skipped)'}`);
+    note(Boolean(process.env.SMTP_USER && process.env.SMTP_PASSWORD), 'email');
+    note(require('./src/deliver/upload').isConfigured(), 'S3 upload');
+    note(Boolean(process.env.GLIDE_TOKEN), 'Glide write-back');
+    note(Boolean(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY), 'LLM enrichment');
+    console.log('');
+  });
+}
+
+module.exports = { app, build };
