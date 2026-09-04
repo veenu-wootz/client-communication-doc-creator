@@ -58,7 +58,7 @@ function buildHtml(plan, fileUrl) {
   return `
     <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;">
       <div style="background:#0F4C5C;padding:20px 24px;border-radius:8px 8px 0 0;">
-        <h2 style="color:#fff;margin:0;font-size:18px;">Client communication ready to send</h2>
+        <h2 style="color:#fff;margin:0;font-size:18px;">PPT ready to send</h2>
         <p style="color:#cfe0e4;margin:4px 0 0;font-size:13px;">${esc(d.report_title || 'Untitled report')}</p>
       </div>
       <div style="background:#F5F6F8;padding:22px 24px;border:1px solid #D9DCE1;border-top:none;">
@@ -109,7 +109,7 @@ async function sendDeckEmail(plan, pptxBuffer, filename, delivery, fileUrl = nul
   }
 
   const d = plan.document;
-  const subject = `Client communication — ${d.report_title || 'Untitled'}`
+  const subject = `PPT — ${d.report_title || 'Untitled'}`
     + (d.reference_name ? ` | ${d.reference_name}` : '')
     + (plan.meta.queryCount ? ` | ${plan.meta.queryCount} ${plan.meta.queryCount === 1 ? 'query' : 'queries'}` : '');
 

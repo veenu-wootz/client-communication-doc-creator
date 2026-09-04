@@ -485,3 +485,74 @@ test('41 · a summary with nothing owed does not ask for a query number', () => 
   assert.deepStrictEqual(sum.rows.filter((r) => r.type === 'section').map((r) => r.text), ['OTHER UPDATES']);
   assert.deepStrictEqual(sum.tail, [], 'no queries, so no "reply quoting the query number"');
 });
+
+// ── Second review round: summary furniture and continuation ──
+
+test('42 · the summary carries the same footer as every other slide', () => {
+  const p = plan('12-four-queries-two-updates');
+  const summary = p.slides.find((s) => s.kind === 'contents');
+  const item = items(p)[0];
+
+  assert.strictEqual(summary.footer.text, item.footer.text,
+    'the summary should not have a footer of its own kind');
+  assert.ok(summary.footer.page, 'and it carries the page indicator');
+  assert.strictEqual(summary.pageLabel, `Page ${summary.page}`);
+  assert.strictEqual(p.slides[0].pageLabel, undefined, 'the cover stays unnumbered');
+});
+
+test('43 · the summary heading sits level with the title on other slides', () => {
+  const summary = plan('12-four-queries-two-updates').slides.find((s) => s.kind === 'contents');
+  assert.strictEqual(summary.heading.box.y, C.HEADER_Y,
+    'anchored at HEADER_Y, not an inch lower at CONTENT_Y');
+});
+
+test('44 · a section label that follows a list gets room above it', () => {
+  const summary = plan('12-four-queries-two-updates').slides.find((s) => s.kind === 'contents');
+  const rows = summary.rows;
+  const updates = rows.findIndex((r) => r.type === 'section' && /OTHER UPDATES/.test(r.text));
+  assert.ok(updates > 0, 'expected an updates section after the queries');
+
+  const lastQuery = rows[updates - 1];
+  const gapBeforeSection = rows[updates].box.y - (lastQuery.box.y + lastQuery.box.h);
+  const entryGap = rows[updates + 2].box.y - (rows[updates + 1].box.y + rows[updates + 1].box.h);
+
+  assert.ok(gapBeforeSection > entryGap * 2,
+    `a section break (${gapBeforeSection.toFixed(2)}in) should read wider than a line break (${entryGap.toFixed(2)}in)`);
+
+  // The first section needs no lead — it sits directly under the heading.
+  assert.strictEqual(rows[0].lead, 0);
+});
+
+test('45 · a slide that carries on says so at its foot; the last one does not', () => {
+  const p = plan('07-long-body-4-images');
+  const slides = items(p).filter((s) => s.itemId === 'a');
+  assert.ok(slides.length > 1, 'expected a multi-slide item');
+
+  for (const s of slides.slice(0, -1)) {
+    assert.ok(s.continuesNote, `p${s.page} continues, so it must say so`);
+    assert.match(s.continuesNote.text, /[Cc]ontinued/);
+  }
+  assert.strictEqual(slides.at(-1).continuesNote, null, 'the final slide has nothing to continue to');
+});
+
+test('46 · the continuation note never overlaps content, the reply box, or the footer', () => {
+  for (const name of Object.keys(fixtures)) {
+    const p = planSlides(fixtures[name]);
+    for (const s of p.slides) {
+      if (s.kind !== 'item' || !s.continuesNote) continue;
+      const note = s.continuesNote.box;
+
+      if (s.body) {
+        assert.ok(s.body.box.y + s.body.box.h <= note.y + 0.02,
+          `${name} p${s.page}: body runs into the continuation note`);
+      }
+      for (const im of s.images) {
+        const bottom = im.caption ? im.caption.box.y + im.caption.box.h : im.box.y + im.box.h;
+        assert.ok(bottom <= note.y + 0.02, `${name} p${s.page}: image runs into the continuation note`);
+      }
+      assert.ok(note.y + note.h <= C.FOOTER_Y + 0.02,
+        `${name} p${s.page}: continuation note collides with the footer`);
+      assert.strictEqual(s.replyBox, null, 'a continuing slide never holds the reply box');
+    }
+  }
+});

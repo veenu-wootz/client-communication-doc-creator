@@ -204,6 +204,12 @@ function renderItem(pres, slide, s) {
 
   for (const im of s.images) drawImage(slide, pres, im);
 
+  if (s.continuesNote) {
+    slide.addText(s.continuesNote.text, textOpts(s.continuesNote.box, {
+      size: C.TYPE.caption.size, color: C.COLOR.muted, align: 'right', valign: 'middle',
+    }));
+  }
+
   if (s.replyBox) {
     slide.addShape(pres.ShapeType.roundRect, {
       x: s.replyBox.box.x, y: s.replyBox.box.y, w: s.replyBox.box.w, h: s.replyBox.box.h,

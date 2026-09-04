@@ -20,6 +20,7 @@ const BLOCK_GAP  = 0.28;
 const HEADING_GAP = 0.30;
 const ENTRY_GAP  = 0.14;
 const SECTION_GAP = 0.22;
+const SECTION_LEAD = 0.34;   // space above a section label that follows a list
 
 /** ISO or loose date → "03 Sep 2026". UTC, so output never depends on the host. */
 function formatDate(value) {
@@ -244,12 +245,17 @@ function planCover(n, showInstruction) {
 function planSummary(n) {
   const entrySize = C.TYPE.contentsEntry.size;
   const labelSize = C.TYPE.sectionLabel.size;
-  const area = { x: C.CONTENT_X, y: C.CONTENT_Y, w: C.CONTENT_W, h: C.CONTENT_BOTTOM - C.CONTENT_Y };
+  // Anchored at HEADER_Y, level with the title on every other slide. At
+  // CONTENT_Y the heading sat almost an inch lower than any other page's, which
+  // read as a mistake rather than as deliberate spacing.
+  const area = { x: C.CONTENT_X, y: C.HEADER_Y, w: C.CONTENT_W, h: C.CONTENT_BOTTOM - C.HEADER_Y };
 
-  const label = (text) => ({
-    type: 'section', text, size: labelSize,
+  // `lead` is space above the label. The first section sits under the heading
+  // and needs none; a later one needs separating from the list it follows.
+  const label = (text, lead = 0) => ({
+    type: 'section', text, size: labelSize, lead,
     lines: wrap(text, area.w, labelSize, true),
-    h: heightOf(1, labelSize) + SECTION_GAP,
+    h: heightOf(1, labelSize) + SECTION_GAP + lead,
   });
   const entry = (text, queryNo) => {
     const lines = wrap(text, area.w, entrySize);   // wraps, never truncated
@@ -270,7 +276,7 @@ function planSummary(n) {
     }
   }
   if (updates.length) {
-    rows.push(label(C.SECTION_UPDATES));
+    rows.push(label(C.SECTION_UPDATES, rows.length ? SECTION_LEAD : 0));
     for (const it of updates) {
       rows.push(entry(it.item_name ? `· ${it.item_name} — ${it.title}` : `· ${it.title}`));
     }
@@ -323,7 +329,8 @@ function planSummary(n) {
     for (let k = 0; k < take; k++) {
       const r = rows[idx + k];
       const gap = r.type === 'section' ? SECTION_GAP : ENTRY_GAP;
-      placed.push({ ...r, box: { x: area.x, y: cursor, w: area.w, h: r.h - gap } });
+      const lead = r.lead || 0;
+      placed.push({ ...r, box: { x: area.x, y: cursor + lead, w: area.w, h: r.h - gap - lead } });
       cursor += r.h;
     }
     idx += take;
@@ -343,7 +350,7 @@ function planSummary(n) {
     const summaryLogo = logoBox(n.document.logo, C.FOOTER_LOGO_H, false);
     slides.push({ kind: 'contents', heading: headingBlock, rows: placed, tail,
       logo: summaryLogo,
-      footer: coverFooter(n.document, { hasLogo: Boolean(summaryLogo), showPreparedBy: false }) });
+      footer: itemFooter(n.document, Boolean(summaryLogo)) });
   }
 
   return slides;
@@ -368,6 +375,19 @@ function buildItemSlide(item, attempt, { continued, isLast }) {
     layout: attempt.layout,
     body: attempt.body,
     images: attempt.images,
+    // Told at the foot of the slide, not only in the next slide's header — a
+    // reader needs to know there is more before they turn the page, not after.
+    continuesNote: isLast ? null : {
+      text: C.CONTINUES_LABEL,
+      // Directly below whatever content area this slide actually used — the
+      // strip layoutItemSlide reserved when it was told the slide continues.
+      box: {
+        x: C.CONTENT_X,
+        y: attempt.content.y + attempt.content.h,
+        w: C.CONTENT_W,
+        h: C.CONTINUES_H,
+      },
+    },
     replyBox: flagged && isLast
       ? {
           label: C.REPLY_LABEL(item.queryNo),
@@ -413,13 +433,15 @@ function planItem(item, warnings) {
       break;
     }
 
-    let chosen = layoutItemSlide({ body, images, headerH, hasReply: false });
+    // Not the last slide, so it carries on overleaf and must say so — which
+    // costs a strip at the foot, hence the re-layout rather than reusing trial.
+    let chosen = layoutItemSlide({ body, images, headerH, hasReply: false, continues: true });
 
     // If the full-height layout would swallow everything, there'd be nothing
-    // left for the reply box's own slide. Keep the trial's split instead so the
-    // remainder carries the reply box on a final slide.
+    // left for the reply box's own slide. Keep a split instead so the remainder
+    // carries the reply box on a final slide.
     if (flagged && chosen.bodyRemainder === '' && chosen.imagesUsed === images.length) {
-      chosen = trial;
+      chosen = layoutItemSlide({ body, images, headerH, hasReply: true, continues: true });
     }
 
     slides.push(buildItemSlide(item, chosen, { continued, isLast: false }));
@@ -540,8 +562,8 @@ function planSlides(doc) {
     if (s.kind === 'item' || s.kind === 'grouped') {
       s.logo = s.logo || logoBox(n.document.logo, C.FOOTER_LOGO_H, false);
       s.footer = itemFooter(n.document, Boolean(s.logo));
-      s.pageLabel = `Page ${i + 1}`;
     }
+    if (s.kind !== 'cover') s.pageLabel = `Page ${i + 1}`;
   });
 
   return {

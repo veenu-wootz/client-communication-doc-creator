@@ -90,10 +90,15 @@ function planHeader({ queryNo, title, continued, itemName }) {
   };
 }
 
-/** The area available for content, given the header height and reply box. */
-function contentBox(headerH, hasReply) {
+/**
+ * The area available for content, given the header height, the reply box, and
+ * whether this slide carries on overleaf (which reserves a strip at the foot
+ * for the "continued" note).
+ */
+function contentBox(headerH, hasReply, continues = false) {
   const y = C.HEADER_Y + headerH + HEADER_GAP;
-  const bottom = hasReply ? C.REPLY_Y - C.REPLY_GAP : C.CONTENT_BOTTOM;
+  const bottom = (hasReply ? C.REPLY_Y - C.REPLY_GAP : C.CONTENT_BOTTOM)
+    - (continues ? C.CONTINUES_H : 0);
   return { x: C.CONTENT_X, y, w: C.CONTENT_W, h: Math.max(0.5, bottom - y) };
 }
 
@@ -111,7 +116,11 @@ function selectLayout(images, hasBody) {
 /** Place one image plus its caption inside a cell, top-aligned, centred. */
 function imageInCell(img, cell) {
   const capLines = img.caption ? wrap(img.caption, cell.w, C.TYPE.caption.size) : [];
-  const capH = capLines.length ? heightOf(capLines.length, C.TYPE.caption.size) + CAPTION_GAP : 0;
+  // capTextH is the text itself; capH is the space it costs the cell, gap
+  // included. The caption BOX gets capTextH only — the gap is already spent
+  // positioning it, and counting it twice pushed captions past the cell floor.
+  const capTextH = capLines.length ? heightOf(capLines.length, C.TYPE.caption.size) : 0;
+  const capH = capTextH ? capTextH + CAPTION_GAP : 0;
   const { w, h } = fitBox(img.width, img.height, cell.w, Math.max(0.2, cell.h - capH));
 
   return {
@@ -122,7 +131,7 @@ function imageInCell(img, cell) {
       ? {
           text: img.caption,
           lines: capLines,
-          box: { x: cell.x, y: cell.y + h + CAPTION_GAP, w: cell.w, h: capH },
+          box: { x: cell.x, y: cell.y + h + CAPTION_GAP, w: cell.w, h: capTextH },
         }
       : null,
     usedH: h + capH,
@@ -262,8 +271,8 @@ function tryLayout(layoutName, images, body, size, c) {
  * remain, so a query always has visual context on its own slide (spec §11).
  * Whatever does not fit is returned as a remainder, never dropped.
  */
-function layoutItemSlide({ body, images, headerH, hasReply }) {
-  const c = contentBox(headerH, hasReply);
+function layoutItemSlide({ body, images, headerH, hasReply, continues = false }) {
+  const c = contentBox(headerH, hasReply, continues);
   const hasBody = Boolean(body && body.trim());
   const sizes = [];
   for (let s = C.BODY_SIZE_MAX; s >= C.BODY_SIZE_MIN; s -= C.BODY_SIZE_STEP) sizes.push(s);

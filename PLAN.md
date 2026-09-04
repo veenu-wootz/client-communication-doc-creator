@@ -305,7 +305,24 @@ already number their own points and those numbers render as written, so a client
 can reply "Q1, point 2" unaided. Having AI renumber them means rewriting the
 sender's text, which the guardrail exists to prevent.
 
-### 5.9 Known consequence, not a bug
+### 5.9 Second review round (2026-09-04)
+
+| Feedback | Change |
+|---|---|
+| The summary's footer differed from every other slide's | It now uses the same `itemFooter` — report title · reference · date, with `Page N`. The cover keeps its own "Prepared by …" footer and stays unnumbered. |
+| QUERIES and OTHER UPDATES sat too close together | A section label that follows a list gets `SECTION_LEAD` (0.34in) above it; the first one, sitting under the heading, gets none. |
+| The summary heading looked oddly low | It was anchored at `CONTENT_Y` (1.50in) while every other slide puts its title at `HEADER_Y` (0.55in) — almost an inch lower, which read as a mistake. Now at `HEADER_Y`. It was never going to "auto-move"; the position was fixed. |
+| A reader could not tell a query continued overleaf until they had already turned the page | A slide that carries on now says so at its foot ("Continued on the next slide →"). `contentBox` reserves `CONTINUES_H` for it when the planner knows the slide continues, so it never collides with content, the reply box, or the footer. |
+| Email heading | Subject is now `PPT — {report_title} | …` and the body heading `PPT ready to send`. |
+
+**A latent bug the continuation work exposed.** `imageInCell` counted
+`CAPTION_GAP` twice — once reserving space in the cell, once positioning the
+caption box — so a captioned image overflowed its cell by exactly that gap. It
+went unnoticed while nothing sat directly beneath the content area; the moment
+the continuation note did, the geometry test caught it. Fixed by giving the
+caption box the text height only, since the gap is already spent on placement.
+
+### 5.10 Known consequence, not a bug
 
 A long body pushes an item across several slides — 900 words with four images plans to five
 item slides, one image each. That is the no-truncation rule working as intended: the
@@ -367,7 +384,7 @@ engine is the only honest way to verify what PowerPoint will do.
 
 ## 9. Status
 
-Built and passing 71 tests: the planner and its geometry, the rendered OOXML, and the
+Built and passing 76 tests: the planner and its geometry, the rendered OOXML, and the
 enrichment fallback chain. `npm run sample` renders 21 fixtures to 114 slides.
 
 The whole pipeline runs with **no credentials at all** — no LLM key, no SMTP, no S3, no

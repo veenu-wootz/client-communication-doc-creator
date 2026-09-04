@@ -48,6 +48,11 @@ const COVER_LOGO_H  = 0.45;
 
 const GUTTER = 0.30;               // between content blocks
 
+// A slide that carries on overleaf says so at the foot, so a reader knows to
+// turn the page rather than assuming the query ended there.
+const CONTINUES_H = 0.30;
+const CONTINUES_LABEL = 'Continued on the next slide →';
+
 // ── Layout thresholds ────────────────────────────────────────
 const WIDE_ASPECT_THRESHOLD = 1.4; // aspect >= this is "wide", else "upright"
 const MIN_IMAGE_W           = 3.0; // below this an image is not legible; reflow instead
@@ -158,7 +163,7 @@ module.exports = {
   CONTENT_Y, CONTENT_Y_2LINE, CONTENT_BOTTOM,
   REPLY_Y, REPLY_H, REPLY_GAP, REPLY_INSET,
   FOOTER_Y, FOOTER_H, FOOTER_LOGO_H, FOOTER_LOGO_SLOT_W, COVER_LOGO_H,
-  GUTTER,
+  GUTTER, CONTINUES_H, CONTINUES_LABEL,
   WIDE_ASPECT_THRESHOLD, MIN_IMAGE_W, MAX_IMAGES_PER_ITEM, IMAGE_MAX_LONG_EDGE,
   IMAGE_ZONE_FRACTION, IMAGE_ZONE_MAX, SIDE_IMAGE_FRACTION, SIDE_PAIR_IMAGE_FRACTION,
   MIN_RENDER_DPI,
