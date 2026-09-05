@@ -65,8 +65,8 @@ test('4 · a wide image is stacked, and far wider than a side column would allow
   assert.ok(s.images[0].box.w <= C.CONTENT_W + 0.01, 'and stay inside the content width');
 });
 
-test('5 · three images grid two-over-one, equal widths, bottom cell centred', () => {
-  const p = plan('05-three-images');
+test('5 · three wide images grid two-over-one, equal widths, bottom cell centred', () => {
+  const p = plan('05b-three-wide-images');
   const grid = items(p).find((s) => s.layout === 'IMAGE_GRID');
   assert.ok(grid, 'expected a grid slide');
   assert.strictEqual(grid.images.length, 3);
@@ -75,6 +75,20 @@ test('5 · three images grid two-over-one, equal widths, bottom cell centred', (
   assert.ok(c.y > a.y, 'third image sits on a second row');
   const centre = C.CONTENT_X + C.CONTENT_W / 2;
   assert.ok(Math.abs((c.x + c.w / 2) - centre) < 0.02, 'bottom cell is horizontally centred');
+});
+
+test('5b · images too small to read in a grid spread over slides instead', () => {
+  // A square drawing in a 2-column grid renders about 1.8in across — no
+  // dimension on it can be read. Legibility beats packing (spec §9.6).
+  const p = plan('05-three-images');
+  const slides = items(p);
+  assert.ok(slides.length > 1, 'expected the item to spread rather than grid');
+  for (const s of slides) {
+    for (const im of s.images) {
+      assert.ok(im.box.w >= C.MIN_IMAGE_W,
+        `p${s.page}: image renders ${im.box.w.toFixed(2)}in, below the ${C.MIN_IMAGE_W}in floor`);
+    }
+  }
 });
 
 test('6 · six images all render — nothing is dropped (PLAN.md §5.1)', () => {
@@ -475,7 +489,7 @@ test('39 · an item with no images reserves the column; one with images does not
   assert.strictEqual(withImage.layout, 'IMAGE_SIDE');
   assert.strictEqual(withImage.placeholder, null);
   assert.strictEqual(items(plan('04-one-wide-image'))[0].layout, 'IMAGE_STACKED');
-  assert.ok(items(plan('05-three-images')).some((s) => s.layout === 'IMAGE_GRID'));
+  assert.ok(items(plan('05b-three-wide-images')).some((s) => s.layout === 'IMAGE_GRID'));
 });
 
 test('40 · a continuation slide that ran out of images gets no placeholder', () => {
@@ -579,6 +593,21 @@ test('47 · the response area is a full-size box, not a strip at its top', () =>
       assert.ok(labelBox.h >= box.h - C.REPLY_INSET * 2 - 0.01,
         `${name} p${s.page}: reply text box is ${labelBox.h.toFixed(2)}in inside a ${box.h.toFixed(2)}in area`);
       assert.ok(labelBox.y + labelBox.h <= box.y + box.h + 0.01, 'and stays within it');
+    }
+  }
+});
+
+test('48 · no image anywhere renders too small to read, unless it is alone', () => {
+  // The one exception: a single image always goes on its slide at whatever size
+  // it comes out, because there is nothing left to reduce.
+  for (const name of Object.keys(fixtures)) {
+    const p = planSlides(fixtures[name]);
+    for (const s of p.slides.filter((x) => x.kind === 'item')) {
+      if (s.images.length < 2) continue;
+      for (const im of s.images) {
+        assert.ok(im.box.w >= C.MIN_IMAGE_W - 0.01,
+          `${name} p${s.page}: ${s.images.length} images, one rendering ${im.box.w.toFixed(2)}in wide`);
+      }
     }
   }
 });

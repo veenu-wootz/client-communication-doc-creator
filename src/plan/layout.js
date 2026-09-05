@@ -112,6 +112,17 @@ function selectLayout(images, hasBody) {
   return 'IMAGE_GRID';
 }
 
+/**
+ * Would any of these render too small to read?
+ *
+ * Never true for a lone image: one picture always goes on the slide however it
+ * comes out, since dropping it is not an option and there is nothing left to
+ * reduce. With more than one, a null sends the caller back to try fewer.
+ */
+function tooSmall(placed, count) {
+  return count > 1 && placed.some((p) => p.box.w < C.MIN_IMAGE_W);
+}
+
 /** Place one image plus its caption inside a cell, top-aligned, centred. */
 function imageInCell(img, cell) {
   const capLines = img.caption ? wrap(img.caption, cell.w, C.TYPE.caption.size) : [];
@@ -140,14 +151,16 @@ function imageInCell(img, cell) {
 /**
  * Try one concrete layout at one body size.
  *
- * Returns null when the arrangement is not viable — the cell an image would go
- * into is narrower than MIN_IMAGE_W, or the grid body needs more room than the
- * grid allows. A null tells the caller to try with fewer images on this slide.
+ * Returns null when the arrangement is not viable — an image would RENDER
+ * narrower than MIN_IMAGE_W, or the grid body needs more room than the grid
+ * allows. A null tells the caller to try with fewer images on this slide.
  *
- * The floor applies to the CELL, not to the rendered image: a square photo in a
- * wide cell is short because of its own aspect, not because the layout squeezed
- * it, and testing the rendered width would make the 3-4 image grid unreachable
- * for anything but wide drawings.
+ * The floor is on the rendered image, not on the cell it sits in. Testing the
+ * cell was tried and is wrong: a 2-column grid cell is 5.9in wide and always
+ * passes, while a portrait drawing inside it renders 1.26in across — small
+ * enough that no dimension on it can be read. Measuring what the reader
+ * actually sees is what makes the cascade spread images over slides at a
+ * legible size (spec §9.6).
  */
 function tryLayout(layoutName, images, body, size, c) {
   const hasBody = Boolean(body && body.trim());
@@ -180,11 +193,11 @@ function tryLayout(layoutName, images, body, size, c) {
     const bodyW = colW - imgW;
 
     cellW = pair ? (imgW - C.GUTTER) / 2 : imgW;
-    if (images.length > 1 && cellW < C.MIN_IMAGE_W) return null;
 
     images.forEach((im, i) => {
       placed.push(imageInCell(im, { x: c.x + i * (cellW + C.GUTTER), y: c.y, w: cellW, h: c.h }));
     });
+    if (tooSmall(placed, images.length)) return null;
     bodyBox = { x: c.x + imgW + C.GUTTER, y: c.y, w: bodyW, h: c.h };
 
   } else if (layoutName === 'IMAGE_STACKED' || layoutName === 'IMAGE_STACKED_PAIR') {
@@ -209,6 +222,8 @@ function tryLayout(layoutName, images, body, size, c) {
       });
     }
 
+    if (tooSmall(placed, images.length)) return null;
+
     const usedH = Math.max(...placed.map((p) => p.box.y + p.usedH)) - c.y;
     const rest = c.h - usedH - C.GUTTER;
     if (hasBody && rest < heightOf(1, size)) return null;
@@ -231,7 +246,7 @@ function tryLayout(layoutName, images, body, size, c) {
     cellW = (c.w - C.GUTTER) / 2;
     const rowH = (gridH - C.GUTTER) / 2;
 
-    if (cellW < C.MIN_IMAGE_W || rowH < 0.6) return null;
+    if (rowH < 0.6) return null;
 
     // 3 images: two on the top row, one centred beneath at the same cell width.
     const slots = images.length === 3
@@ -248,6 +263,7 @@ function tryLayout(layoutName, images, body, size, c) {
     images.forEach((im, i) => {
       placed.push(imageInCell(im, { x: slots[i].x, y: slots[i].y, w: cellW, h: rowH }));
     });
+    if (tooSmall(placed, images.length)) return null;
 
     bodyBox = bodyH ? { x: c.x, y: c.y, w: c.w, h: bodyH } : null;
     bodySizedToText = true;

@@ -505,7 +505,33 @@ type into rather than the space the box appeared to offer.
 Decks also got markedly smaller (110-180 KB down to 41-68 KB), since the drawn
 rectangles and their labels are gone.
 
-### 5.17 Known consequence, not a bug
+### 5.17 The legibility floor, corrected (2026-09-05)
+
+A real deck put three drawings on one slide, each rendering about 1.3in wide —
+too small to read a dimension on. Three hypotheses were checked and all three
+were wrong: placeholders were not attached to any slide that has images,
+continuation and the cascade were both working, and measuring the same input on
+both branches showed images marginally **larger** on the flat format
+(1.26/2.54/3.19in) than on the grouped one (1.16/2.33/2.92in). The flat format
+did not cause it.
+
+The cause was older than either: the viability floor tested the **cell** an image
+sits in rather than the image as **rendered**. A 2-column grid cell is 5.9in wide
+and always passes, while a portrait drawing inside it comes out 1.26in across.
+That check was changed to the cell during the first build, to stop the 3–4 image
+grid being unreachable for square images — the wrong trade, since it bought a
+grid nobody can read.
+
+The floor now measures what the reader actually sees. The same item spreads over
+three slides at 3.64in, 6.30in and 7.91in — three to six times larger — with the
+continuation notes that implies. A lone image is exempt: it goes on its slide at
+whatever size it comes out, because there is nothing left to reduce.
+
+The grid is not gone, only earned: it fires when images are wide enough to stay
+legible in it (aspect of roughly 1.7 or more), which the wide-image fixture
+covers. Square drawings now pair up two per slide at 3.4in instead.
+
+### 5.18 Known consequence, not a bug
 
 A long body pushes an item across several slides — 900 words with four images plans to five
 item slides, one image each. That is the no-truncation rule working as intended: the

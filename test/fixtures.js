@@ -73,6 +73,12 @@ const fixtures = {
     items: [query('a', 'Weld positions', 'Which two are correct?', [square('w1'), square('w2'), square('w3')])],
   },
 
+  '05b-three-wide-images': {
+    document: doc(),
+    items: [query('a', 'Weld positions', 'Which two are correct?',
+      [wide('w1'), wide('w2'), wide('w3')])],
+  },
+
   '06-six-images': {
     document: doc(),
     items: [query('a', 'Six views', 'All six views attached for reference.',
