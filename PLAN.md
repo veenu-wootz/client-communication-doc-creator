@@ -371,10 +371,16 @@ Decks are filed as **`Queries - {project_name} - {DD Mon YYYY H.MM AM/PM}.pptx`*
 the timestamp being generation time in IST — not the submission's `created_at`,
 since the name records when the deck was produced.
 
-`project_name` is its own field rather than reusing `report_title`. Sending only
-`project_name` populates both (it is an alias of `report_title` too), so the
-common case needs one field; they stay separable if a filename and a cover
-heading ever need to differ.
+`project_name` and `report_title` are **independent fields and do not alias each
+other**: `report_title` is what the deck displays, `project_name` is what the
+file is named. Whatever the payload sends for each is used for that purpose and
+nothing else.
+
+The consequence is that Strike must send **both**. A payload carrying only
+`project_name` leaves `report_title` null, and the cover then renders without a
+heading — which composes cleanly (§7.1 requires it) but is not what anyone
+wants. The filename keeps a `project_name || report_title` fallback, since a
+file called "Queries - document - …" would be worse than borrowing the title.
 
 Two details worth keeping: the time separator is a dot because a colon is
 illegal in OneDrive/SharePoint filenames, and months are formatted with the same

@@ -94,8 +94,9 @@ test('report_title and reference_name are read, with the old names still accepte
   assert.strictEqual(now.document.report_title, 'New');
   assert.strictEqual(now.document.reference_name, 'REF-1');
 
-  const legacy = parseStrikePayload({ project_name: 'Old', part_number: 'BRK-1', items: glideItems([{ description: 'x' }]) });
-  assert.strictEqual(legacy.document.report_title, 'Old', 'project_name still maps through');
+  // part_number still maps through to reference_name. project_name no longer
+  // maps to report_title — they are separate fields now (filename vs display).
+  const legacy = parseStrikePayload({ part_number: 'BRK-1', items: glideItems([{ description: 'x' }]) });
   assert.strictEqual(legacy.document.reference_name, 'BRK-1', 'part_number still maps through');
 });
 
@@ -142,19 +143,27 @@ test('the OneDrive destination is read from the payload, with aliases', () => {
     'no destination in the payload falls through to the env default downstream');
 });
 
-test('project_name is read on its own, and mirrors report_title when only one is sent', () => {
+test('report_title and project_name are independent — neither aliases the other', () => {
+  // One names the file, the other is displayed on the deck. A payload that
+  // sends both gets both, each used for its own purpose.
   const both = parseStrikePayload({
     report_title: 'Deck heading', project_name: 'Folder name',
     items: glideItems([{ description: 'x' }]),
   });
   assert.strictEqual(both.document.report_title, 'Deck heading');
-  assert.strictEqual(both.document.project_name, 'Folder name', 'kept separate when both are sent');
+  assert.strictEqual(both.document.project_name, 'Folder name');
 
+  // Sending one must NOT populate the other.
   const onlyProject = parseStrikePayload({
-    project_name: 'Test - 2 1014 - Testing Query PPT',
-    items: glideItems([{ description: 'x' }]),
+    project_name: 'Test - 2 1014', items: glideItems([{ description: 'x' }]),
   });
-  assert.strictEqual(onlyProject.document.project_name, 'Test - 2 1014 - Testing Query PPT');
-  assert.strictEqual(onlyProject.document.report_title, 'Test - 2 1014 - Testing Query PPT',
-    'sending only project_name populates both');
+  assert.strictEqual(onlyProject.document.project_name, 'Test - 2 1014');
+  assert.strictEqual(onlyProject.document.report_title, null,
+    'project_name must not leak into the displayed title');
+
+  const onlyReport = parseStrikePayload({
+    report_title: 'Bracket Assembly', items: glideItems([{ description: 'x' }]),
+  });
+  assert.strictEqual(onlyReport.document.report_title, 'Bracket Assembly');
+  assert.strictEqual(onlyReport.document.project_name, null);
 });

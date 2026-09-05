@@ -18,11 +18,11 @@
 const FIELD_MAP = {
   // One free-text label instead of separate part/PO fields — it can carry a
   // part number, a PO number, or a name, whichever the sender has.
-  report_title:       ['report_title', 'reportTitle', 'Report Title', 'project_name', 'projectName', 'Project Name', 'project', 'title'],
-  // Names the file. Usually the same value as report_title — sending only
-  // project_name populates both — but kept separate so the filename and the
-  // deck's cover heading can differ if a submission ever needs that.
-  project_name:       ['project_name', 'projectName', 'Project Name', 'project', 'report_title', 'reportTitle'],
+  // report_title and project_name are independent and do NOT alias each other.
+  // report_title is what the deck displays; project_name is what the file is
+  // named. A payload that sends both gets both used for their own purpose.
+  report_title:       ['report_title', 'reportTitle', 'Report Title', 'title'],
+  project_name:       ['project_name', 'projectName', 'Project Name', 'project'],
   reference_name:     ['reference_name', 'referenceName', 'Reference Name', 'reference', 'part_number', 'partNumber', 'Part Number'],
   addressee:          ['addressee', 'addressed_to', 'addressedTo', 'Addressed to', 'attention', 'contact_name'],
   additional_details: ['additional_details', 'additional_information', 'Additional Information', 'additionalInfo', 'notes', 'remarks'],
