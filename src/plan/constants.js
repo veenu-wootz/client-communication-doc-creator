@@ -95,6 +95,10 @@ const CONTENTS_MAX_ENTRIES         = 12;  // then paginate — never trim (PLAN.
 // filled it reads as a reserved frame rather than an unfinished box.
 const PLACEHOLDER_LABEL = 'Add image';
 
+// Blank lines reserved for Additional information on the cover when the payload
+// carries none, so there is somewhere to actually write.
+const COVER_NOTE_EMPTY_LINES = 4;
+
 // ── Template slides (appended for the sender to copy) ────────
 const TEMPLATE_TITLE_PROMPT = 'Click to add title';
 const TEMPLATE_BODY_PROMPT  = 'Click to add text';
@@ -176,7 +180,7 @@ module.exports = {
   GRID_BODY_MAX_LINES, GRID_MAX_CELLS,
   INCLUDE_SUMMARY_MIN_ITEMS, CONTENTS_MAX_ENTRIES,
   PLACEHOLDER_LABEL,
-  TEMPLATE_TITLE_PROMPT, TEMPLATE_BODY_PROMPT, TEMPLATE_IMAGE_PROMPT,
+  COVER_NOTE_EMPTY_LINES, TEMPLATE_TITLE_PROMPT, TEMPLATE_BODY_PROMPT, TEMPLATE_IMAGE_PROMPT,
   FILL_TARGET, HARD_WRAP, LINE_HEIGHT,
   FONT, TYPE, BODY_SIZE_MAX, BODY_SIZE_MIN, BODY_SIZE_STEP,
   COLOR, HAIRLINE, CHIP,

@@ -78,40 +78,79 @@ function drawChip(slide, pres, chip) {
  * Placeholders can only be declared on a master, so one master is defined per
  * distinct geometry the deck actually needs. In practice that is two or three.
  */
-function masterKeyFor(boxes) {
+function masterKeyFor(prefix, boxes) {
   const mm = (v) => Math.round(v * 100);
-  return `PIC_${boxes.map((b) => [mm(b.x), mm(b.y), mm(b.w), mm(b.h)].join('_')).join('__')}`;
+  return `${prefix}_${boxes.map((b) => [mm(b.x), mm(b.y), mm(b.w), mm(b.h)].join('_')).join('__')}`;
 }
 
-/** Every slide that needs a picture placeholder, with the box it needs. */
+/**
+ * Every slide needing placeholders, and what it needs.
+ *
+ * Template masters are keyed apart from the rest even where the geometry
+ * matches: they carry title and body placeholders too, and an item slide
+ * sharing that master would sprout prompts it should not have.
+ */
 function placeholderSlots(plan) {
   const slots = new Map();
-  const want = (boxes) => { const k = masterKeyFor(boxes); if (!slots.has(k)) slots.set(k, boxes); return k; };
+  const want = (prefix, pics, texts = []) => {
+    const k = masterKeyFor(prefix, pics);
+    if (!slots.has(k)) slots.set(k, { pics, texts });
+    return k;
+  };
 
   for (const s of plan.slides) {
-    if (s.kind === 'cover' && s.photoPlaceholder) s.masterName = want([s.photoPlaceholder.box]);
-    else if (s.kind === 'item' && s.placeholder) s.masterName = want([s.placeholder.box]);
-    else if (s.kind === 'template') s.masterName = want(s.images);
+    if (s.kind === 'cover' && s.photoPlaceholder) s.masterName = want('PIC', [s.photoPlaceholder.box]);
+    else if (s.kind === 'item' && s.placeholder) s.masterName = want('PIC', [s.placeholder.box]);
+    else if (s.kind === 'template') {
+      // Title and body are placeholders too, not drawn text: PowerPoint then
+      // shows its own prompt, clears it the moment the sender types, and the
+      // typed text takes the ink colour rather than staying the prompt's grey.
+      s.masterName = want(`TPL${s.variant}`, s.images, [
+        {
+          box: { x: s.titleBox.x + 0.95, y: s.titleBox.y, w: s.titleBox.w - 0.95, h: s.titleBox.h },
+          size: C.TYPE.slideHeader.size, bold: true, valign: 'middle', text: C.TEMPLATE_TITLE_PROMPT,
+        },
+        {
+          box: s.bodyBox,
+          size: C.TYPE.body.size, bold: false, valign: 'top', text: C.TEMPLATE_BODY_PROMPT,
+        },
+      ]);
+    }
   }
   return slots;
 }
 
 function definePictureMasters(pres, slots) {
-  for (const [name, boxes] of slots) {
-    pres.defineSlideMaster({
-      title: name,
-      objects: boxes.map((box, i) => ({
+  for (const [name, { pics, texts }] of slots) {
+    // Pictures FIRST — promotePicturePlaceholders promotes by position, since
+    // pptxgenjs discards the name we give each placeholder.
+    const objects = pics.map((box, i) => ({
+      placeholder: {
+        options: {
+          name: `pic${i + 1}`, type: 'pic',
+          x: box.x, y: box.y, w: box.w, h: box.h,
+          fontFace: C.FONT, fontSize: C.TYPE.caption.size,
+          color: C.COLOR.muted, align: 'center', valign: 'middle',
+        },
+        text: C.PLACEHOLDER_LABEL,
+      },
+    }));
+
+    for (const [i, t] of texts.entries()) {
+      objects.push({
         placeholder: {
           options: {
-            name: `pic${i + 1}`, type: 'pic',
-            x: box.x, y: box.y, w: box.w, h: box.h,
-            fontFace: C.FONT, fontSize: C.TYPE.caption.size,
-            color: C.COLOR.muted, align: 'center', valign: 'middle',
+            name: `txt${i + 1}`, type: 'body',
+            x: t.box.x, y: t.box.y, w: t.box.w, h: t.box.h,
+            fontFace: C.FONT, fontSize: t.size, bold: t.bold,
+            color: C.COLOR.ink, valign: t.valign, margin: 0,
           },
-          text: C.PLACEHOLDER_LABEL,
+          text: t.text,
         },
-      })),
-    });
+      });
+    }
+
+    pres.defineSlideMaster({ title: name, objects });
   }
 }
 
@@ -301,14 +340,6 @@ function renderItem(pres, slide, s) {
 function renderTemplate(pres, slide, s) {
   drawChip(slide, pres, s.header.chip);
 
-  slide.addText(C.TEMPLATE_TITLE_PROMPT, textOpts(
-    { x: s.titleBox.x + 0.95, y: s.titleBox.y, w: s.titleBox.w - 0.95, h: s.titleBox.h },
-    { size: C.TYPE.slideHeader.size, bold: true, color: C.COLOR.border, valign: 'middle' },
-  ));
-  slide.addText(C.TEMPLATE_BODY_PROMPT, textOpts(s.bodyBox, {
-    size: C.TYPE.body.size, color: C.COLOR.border,
-  }));
-
   slide.addShape(pres.ShapeType.roundRect, {
     x: s.replyBox.box.x, y: s.replyBox.box.y, w: s.replyBox.box.w, h: s.replyBox.box.h,
     rectRadius: REPLY_RADIUS,
@@ -336,8 +367,12 @@ function renderTemplate(pres, slide, s) {
  * shape of this XML, this must fail loudly instead of quietly reverting to
  * placeholders nobody can click.
  */
-async function promotePicturePlaceholders(buffer, expected) {
-  if (expected === 0) return { buffer, promoted: 0 };
+async function promotePicturePlaceholders(buffer, slots) {
+  if (slots.size === 0) return { buffer, promoted: 0 };
+
+  // How many of each layout's placeholders are pictures. The rest are text and
+  // must be left alone, or a title would become a picture frame.
+  const picCount = new Map([...slots].map(([k, v]) => [k, v.pics.length]));
 
   const zip = await JSZip.loadAsync(buffer);
   const layouts = Object.keys(zip.files).filter((n) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n));
@@ -345,17 +380,17 @@ async function promotePicturePlaceholders(buffer, expected) {
 
   for (const name of layouts) {
     const xml = await zip.file(name).async('string');
-    if (!/name="PIC_[^"]*"/.test(xml)) continue;          // not one of ours
-    if (/<p:ph[^>]*type="pic"/.test(xml)) { promoted += 1; continue; }
+    const key = (xml.match(/name="((?:PIC|TPL)[^"]*)"/) || [])[1];
+    if (!key || !picCount.has(key)) continue;            // not one of ours
 
-    const next = xml.replace(/<p:ph\b/g, '<p:ph type="pic"');
-    if (next === xml) continue;
-    zip.file(name, next);
+    let remaining = picCount.get(key);
+    const next = xml.replace(/<p:ph\b/g, (m) => (remaining-- > 0 ? '<p:ph type="pic"' : m));
+    if (next !== xml) zip.file(name, next);
     promoted += 1;
   }
 
-  if (promoted !== expected) {
-    console.warn(`  ⚠ picture placeholders: promoted ${promoted} of ${expected} — `
+  if (promoted !== slots.size) {
+    console.warn(`  ⚠ picture placeholders: promoted ${promoted} of ${slots.size} — `
       + 'image slots will show a text prompt instead of an insert icon');
   }
 
@@ -393,7 +428,7 @@ async function renderPptx(plan) {
   }
 
   const raw = await pres.write({ outputType: 'nodebuffer' });
-  const { buffer } = await promotePicturePlaceholders(raw, slots.size);
+  const { buffer } = await promotePicturePlaceholders(raw, slots);
   return buffer;
 }
 

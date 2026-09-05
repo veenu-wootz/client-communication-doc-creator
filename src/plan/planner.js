@@ -185,12 +185,14 @@ function planCover(n, showInstruction) {
    * than vanishing. A rule reads as a form line, so nothing has to be deleted
    * if it is left blank; a filled box would have to be (PLAN.md §5.14).
    */
-  const field = (label, value) => {
+  const field = (label, value, emptyLines = 1) => {
     const labelH = heightOf(1, C.TYPE.coverLabel.size);
     const size = C.TYPE.coverValue.size;
     const filled = Boolean(value);
     const vLines = filled ? wrap(value, textW, size) : [];
-    const valueH = filled ? heightOf(vLines.length, size) : heightOf(1, size);
+    // An empty field reserves real writing room rather than a single line —
+    // free text needs somewhere to go, and the rule sits at the foot of it.
+    const valueH = filled ? heightOf(vLines.length, size) : heightOf(emptyLines, size);
 
     blocks.push({
       kind: 'field',
@@ -207,7 +209,7 @@ function planCover(n, showInstruction) {
 
   field('Reference number', d.reference_name);
   if (d.addressee) field('Attention', d.addressee);
-  field('Additional information', d.additional_details);
+  field('Additional information', d.additional_details, C.COVER_NOTE_EMPTY_LINES);
 
   // Prepared by moves out of the footer and becomes a field like the others —
   // it is information about the document, and at 9pt in the footer nobody read it.

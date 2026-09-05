@@ -260,8 +260,9 @@ test('every picture placeholder is a real one, so it can be clicked and vanishes
     let typed = 0;
     for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n))) {
       const xml = await zip.file(f).async('string');
-      if (!/name="PIC_[^"]*"/.test(xml)) continue;
-      assert.match(xml, /<p:ph[^>]*type="pic"/, `${name}: ${f} is not a picture placeholder`);
+      const key = (xml.match(/name="((?:PIC|TPL)[^"]*)"/) || [])[1];
+      if (!key) continue;
+      assert.match(xml, /<p:ph[^>]*type="pic"/, `${name}: ${f} has no picture placeholder`);
       typed += 1;
     }
     assert.strictEqual(typed, expected.size, `${name}: every needed layout must be promoted`);
@@ -282,4 +283,34 @@ test('the summary numbers every paragraph, with none left unbulleted', async () 
   const starts = [...xml.matchAll(/buAutoNum[^>]*startAt="(\d+)"/g)].map((m) => Number(m[1]));
   assert.deepStrictEqual(starts, [1, 2, 3, 4, 5, 6],
     'each entry states its own number — pptxgenjs always writes startAt, so omitting it renders 1,1,1');
+});
+
+test('a template\'s title and body stay text placeholders, only pictures are promoted', async () => {
+  // Promotion is positional, so an off-by-one would silently turn the title
+  // into a picture frame the sender cannot type into.
+  const { zip } = await openDeck('01-flagged-unflagged-flagged');
+  let checked = 0;
+
+  for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n))) {
+    const xml = await zip.file(f).async('string');
+    const key = (xml.match(/name="(TPL[^"]*)"/) || [])[1];
+    if (!key) continue;
+
+    const total = (xml.match(/<p:ph/g) || []).length;
+    const pics = (xml.match(/type="pic"/g) || []).length;
+    assert.strictEqual(total - pics, 2, `${key}: expected exactly the title and body to stay text`);
+    checked += 1;
+  }
+  assert.strictEqual(checked, 2, 'both template layouts must be present');
+});
+
+test('template slides carry no literal prompt text of their own', async () => {
+  // Drawn grey prompts do not clear when clicked and type grey — the whole
+  // reason these moved to real placeholders.
+  const { plan, slides } = await openDeck('01-flagged-unflagged-flagged');
+  for (const [i, s] of plan.slides.entries()) {
+    if (s.kind !== 'template') continue;
+    assert.ok(!textOf(slides[i]).includes('Click to add'),
+      `slide ${i + 1}: prompt text must come from the placeholder, not the slide`);
+  }
 });
