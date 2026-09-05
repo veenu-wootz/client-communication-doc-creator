@@ -118,7 +118,10 @@ app.post('/generate', async (req, res) => {
         // 7.10 PM" would not sort or filter there. The readable form is in the
         // filename, where a person actually reads it.
         generatedOn: generatedAt.toISOString(),
-        generatedBy: parsed.delivery.to || parsed.document.created_by,
+        // No fallback: these columns record what this run actually had. Falling
+        // back to created_by would put a person's NAME in a column meant for an
+        // email address, which reads as data rather than as a gap.
+        generatedBy: parsed.delivery.to,
       });
     } catch (e) {
       console.warn(`  glide write failed (non-fatal): ${e.message}`);

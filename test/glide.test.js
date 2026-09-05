@@ -63,15 +63,31 @@ test('the mutation carries every column, keyed by Glide\'s internal ids', async 
   });
 });
 
-test('a value we do not have is omitted, not written as empty', async () => {
-  // Sending "" would blank a field the sender had filled in by hand.
+test('a missing value clears its cell rather than leaving the last run\'s answer', async () => {
+  // These five columns are written only by this service, never by hand. Skipping
+  // a blank left a stale version sitting beside a freshly generated file.
   const sent = await withEnv({ GLIDE_TOKEN: 'test-token' }, () =>
     capture(() => writeBackToGlide({ rowId: 'ROW1', version: '' },
-      { fileId: 'ID', fileLink: null, generatedOn: '2026-09-05T00:00:00Z', generatedBy: '' })));
+      { fileId: 'ID', fileLink: null, generatedOn: '2026-09-05T00:00:00Z', generatedBy: undefined })));
 
-  const keys = Object.keys(sent.body.mutations[0].columnValues);
-  assert.deepStrictEqual(keys.sort(), ['RcHZF', 'TjmbZ'].sort(),
-    'only the columns with real values are sent');
+  assert.deepStrictEqual(sent.body.mutations[0].columnValues, {
+    QZRyl: '',                        // no version in the payload -> cleared
+    RcHZF: 'ID',
+    g0KAH: '',                        // null -> cleared, not omitted
+    TjmbZ: '2026-09-05T00:00:00Z',
+    wVeBR: '',                        // undefined -> cleared, not omitted
+  });
+});
+
+test('nothing is ever derived into these columns', async () => {
+  // A name is not an email; a fallback would put one in a column meant for the
+  // other and it would read as data rather than as a gap.
+  const { parseStrikePayload } = require('../src/input/parseStrikePayload');
+  const parsed = parseStrikePayload({
+    created_by: 'Vinay Singh',            // a name, and NO to_email
+    items: ['{"description":"x"}'],
+  });
+  assert.strictEqual(parsed.delivery.to, '', 'no email in the payload means no email');
 });
 
 test('column ids, app and table can be overridden without touching code', async () => {
@@ -84,7 +100,8 @@ test('column ids, app and table can be overridden without touching code', async 
 
   assert.strictEqual(sent.body.appID, 'OTHER_APP');
   assert.strictEqual(sent.body.mutations[0].tableName, 'other-table');
-  assert.deepStrictEqual(sent.body.mutations[0].columnValues, { zzz9: 'ID' });
+  assert.strictEqual(sent.body.mutations[0].columnValues.zzz9, 'ID', 'the overridden id is used');
+  assert.ok(!('RcHZF' in sent.body.mutations[0].columnValues), 'and the default one is not');
 });
 
 test('a table named in the payload beats the env default', async () => {
@@ -93,7 +110,7 @@ test('a table named in the payload beats the env default', async () => {
   assert.strictEqual(sent.body.mutations[0].tableName, 'payload-table');
 });
 
-test('no token, no row, or nothing to write are skips — never errors', async () => {
+test('a missing token or row is a skip, never an error', async () => {
   await withEnv({ GLIDE_TOKEN: undefined }, async () => {
     assert.strictEqual(isConfigured(), false);
     const r = await writeBackToGlide({ rowId: 'ROW1' }, VALUES);
@@ -105,10 +122,15 @@ test('no token, no row, or nothing to write are skips — never errors', async (
     const noRow = await writeBackToGlide({}, VALUES);
     assert.strictEqual(noRow.skipped, true);
     assert.match(noRow.reason, /rfq_row_id/);
-
-    const noValues = await writeBackToGlide({ rowId: 'ROW1' }, {});
-    assert.strictEqual(noValues.skipped, true);
   });
+});
+
+test('an all-blank write still goes out, clearing the row', async () => {
+  const sent = await withEnv({ GLIDE_TOKEN: 'test-token' }, () =>
+    capture(() => writeBackToGlide({ rowId: 'ROW1' }, {})));
+
+  assert.deepStrictEqual(Object.values(sent.body.mutations[0].columnValues), ['', '', '', '', ''],
+    'a run that produced nothing must leave nothing behind');
 });
 
 test('an API error is raised so the caller can log it, not swallowed', async () => {

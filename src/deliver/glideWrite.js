@@ -48,22 +48,18 @@ async function writeBackToGlide(writeback = {}, values = {}) {
 
   const col = COLUMNS();
 
-  // Only send columns we actually have a value for. Writing an empty string
-  // would blank a field the sender had already filled in by hand.
-  const pairs = [
-    [col.version, writeback.version],
-    [col.fileId, values.fileId],
-    [col.fileLink, values.fileLink],
-    [col.generatedOn, values.generatedOn],
-    [col.generatedBy, values.generatedBy],
-  ].filter(([, v]) => v !== undefined && v !== null && String(v) !== '');
-
-  if (!pairs.length) {
-    console.log('  glide: skipped — nothing to write');
-    return { skipped: true, reason: 'no values' };
-  }
-
-  const columnValues = Object.fromEntries(pairs);
+  // Every column is written every time, blank included. These five are written
+  // only by this service, never by hand, so a missing value must clear the cell
+  // rather than leave the previous run's answer sitting there — a stale version
+  // beside a fresh file is worse than an empty one.
+  const blank = (v) => (v === undefined || v === null ? '' : String(v));
+  const columnValues = {
+    [col.version]: blank(writeback.version),
+    [col.fileId]: blank(values.fileId),
+    [col.fileLink]: blank(values.fileLink),
+    [col.generatedOn]: blank(values.generatedOn),
+    [col.generatedBy]: blank(values.generatedBy),
+  };
 
   const res = await fetch(ENDPOINT, {
     method: 'POST',

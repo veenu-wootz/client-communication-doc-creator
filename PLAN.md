@@ -454,8 +454,12 @@ readable form stays in the filename, where a person actually reads it. One
 `generatedAt` instant is taken at the top of `build()` and used for both, so they
 cannot disagree.
 
-**Empty values are omitted rather than written as `""`.** Writing an empty string
-would blank a field a sender had filled in by hand.
+**All five columns are written every time, blank included.** They are written
+only by this service and never by hand, so omitting a blank left the previous
+run's answer beside a freshly generated file — a stale version reads as fact.
+Nothing is derived into them either: `generatedBy` used to fall back to
+`created_by`, which would put a person's *name* in a column meant for an email
+address. A gap is now visibly a gap.
 
 Verified end to end against the live table: five columns written, then read back
 with `queryTables` to confirm they actually landed — a 200 alone proves nothing,
