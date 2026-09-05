@@ -1,102 +1,92 @@
 /**
- * glideWrite.js — write the stored file URL back into the Glide row.
+ * glideWrite.js — write the generated deck's details back into the Glide row.
  *
- * OPTIONAL, AND LAST IN THE CHAIN (PLAN.md T7). It only runs when an upload
- * actually produced a URL — there is nothing to write otherwise — and when the
- * Glide credentials are present. Missing either is a skip, never an error.
+ * OPTIONAL, like every delivery step: a missing token is a logged skip, never an
+ * error. The email attachment stays the guaranteed path.
  *
- * ── NOT YET WIRED ────────────────────────────────────────────────────────────
- * Glide has two API surfaces and we do not yet know which the Strike app uses:
+ * Uses Glide's mutateTables function with a set-columns-in-row mutation. Column
+ * ids are Glide's internal names (`QZRyl` and friends) — opaque but stable, and
+ * overridable by env so a different table needs no code change.
  *
- *   'v2'      PATCH https://api.glideapps.com/tables/{table}/rows/{rowId}
- *             Authorization: Bearer <token>            (Big Tables)
- *   'mutate'  POST  https://api.glideapp.io/api/function/mutateTables
- *             { appID, mutations: [{ kind: 'set-columns-in-row', ... }] }
- *
- * Both are implemented below and chosen by GLIDE_API. When you send the key,
- * table/row identifiers and target column, set the env vars and it starts
- * working — there is no other code to change.
- *
- * Structure follows qualityinspectionreport/appsheetRows.js: env-keyed, POST,
- * throw on a non-2xx so the caller can log it as non-fatal.
+ * The token is read from the environment and never hardcoded: one of this
+ * repo's two remotes is public.
  */
 
-const fetch = require('node-fetch');
+const ENDPOINT = 'https://api.glideapp.io/api/function/mutateTables';
 
-const API = () => (process.env.GLIDE_API || 'v2').toLowerCase();
+const APP_ID = () => process.env.GLIDE_APP_ID || 'ARzoymvBNIgO6RcvRk7l';
+const TABLE  = (override) => override
+  || process.env.GLIDE_TABLE
+  || 'native-table-24696dcc-caaf-4bf8-a015-1e9ef394aa1b';
 
-function isConfigured(writeback = {}) {
-  if (!process.env.GLIDE_TOKEN) return false;
-  const table = writeback.table || process.env.GLIDE_TABLE;
-  const column = writeback.column || process.env.GLIDE_COLUMN;
-  if (!table || !column) return false;
-  if (API() === 'mutate' && !process.env.GLIDE_APP_ID) return false;
-  return true;
-}
+/** canonical name → Glide's internal column id. */
+const COLUMNS = () => ({
+  version:     process.env.GLIDE_COL_VERSION      || 'QZRyl',
+  fileId:      process.env.GLIDE_COL_FILE_ID      || 'RcHZF',
+  fileLink:    process.env.GLIDE_COL_FILE_LINK    || 'g0KAH',
+  generatedOn: process.env.GLIDE_COL_GENERATED_ON || 'TjmbZ',
+  generatedBy: process.env.GLIDE_COL_GENERATED_BY || 'wVeBR',
+});
 
-function describeMissing(writeback = {}) {
-  const missing = [];
-  if (!process.env.GLIDE_TOKEN) missing.push('GLIDE_TOKEN');
-  if (!(writeback.table || process.env.GLIDE_TABLE)) missing.push('table');
-  if (!(writeback.column || process.env.GLIDE_COLUMN)) missing.push('column');
-  if (API() === 'mutate' && !process.env.GLIDE_APP_ID) missing.push('GLIDE_APP_ID');
-  return missing;
-}
+const isConfigured = () => Boolean(process.env.GLIDE_TOKEN);
 
 /**
- * @param {object} writeback  { rowId, table, column } from the payload
- * @param {string} fileUrl    the stored deck URL
+ * @param {object} writeback  { rowId, version, table } from the payload
+ * @param {object} values     { fileId, fileLink, generatedOn, generatedBy }
+ * @returns {Promise<{skipped: boolean, reason?: string, written?: string[]}>}
  */
-async function writeDeckUrl(writeback = {}, fileUrl) {
-  if (!fileUrl) {
-    console.log('  glide: skipped — no file URL to write (upload did not run)');
-    return { skipped: true, reason: 'no file url' };
-  }
-  if (!writeback.rowId) {
-    console.log('  glide: skipped — payload carried no row id');
-    return { skipped: true, reason: 'no row id' };
-  }
-  if (!isConfigured(writeback)) {
-    const reason = `glide not configured (${describeMissing(writeback).join(', ')})`;
+async function writeBackToGlide(writeback = {}, values = {}) {
+  if (!isConfigured()) {
+    const reason = 'GLIDE_TOKEN not set';
     console.log(`  glide: skipped — ${reason}`);
     return { skipped: true, reason };
   }
-
-  const table = writeback.table || process.env.GLIDE_TABLE;
-  const column = writeback.column || process.env.GLIDE_COLUMN;
-  const token = process.env.GLIDE_TOKEN;
-
-  let url, options;
-
-  if (API() === 'mutate') {
-    url = 'https://api.glideapp.io/api/function/mutateTables';
-    options = {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        appID: process.env.GLIDE_APP_ID,
-        mutations: [{
-          kind: 'set-columns-in-row',
-          tableName: table,
-          rowID: writeback.rowId,
-          columnValues: { [column]: fileUrl },
-        }],
-      }),
-    };
-  } else {
-    url = `https://api.glideapps.com/tables/${encodeURIComponent(table)}/rows/${encodeURIComponent(writeback.rowId)}`;
-    options = {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ [column]: fileUrl }),
-    };
+  if (!writeback.rowId) {
+    console.log('  glide: skipped — payload carried no rfq_row_id');
+    return { skipped: true, reason: 'no rfq_row_id' };
   }
 
-  const res = await fetch(url, { ...options, timeout: 15000 });
-  if (!res.ok) throw new Error(`Glide API ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const col = COLUMNS();
 
-  console.log(`  glide → row ${writeback.rowId}.${column} updated`);
-  return { skipped: false };
+  // Only send columns we actually have a value for. Writing an empty string
+  // would blank a field the sender had already filled in by hand.
+  const pairs = [
+    [col.version, writeback.version],
+    [col.fileId, values.fileId],
+    [col.fileLink, values.fileLink],
+    [col.generatedOn, values.generatedOn],
+    [col.generatedBy, values.generatedBy],
+  ].filter(([, v]) => v !== undefined && v !== null && String(v) !== '');
+
+  if (!pairs.length) {
+    console.log('  glide: skipped — nothing to write');
+    return { skipped: true, reason: 'no values' };
+  }
+
+  const columnValues = Object.fromEntries(pairs);
+
+  const res = await fetch(ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.GLIDE_TOKEN}`,
+    },
+    body: JSON.stringify({
+      appID: APP_ID(),
+      mutations: [{
+        kind: 'set-columns-in-row',
+        tableName: TABLE(writeback.table),
+        columnValues,
+        rowID: writeback.rowId,
+      }],
+    }),
+  });
+
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Glide API ${res.status}: ${text.slice(0, 300)}`);
+
+  console.log(`  glide → row ${writeback.rowId}: ${Object.keys(columnValues).length} column(s) written`);
+  return { skipped: false, written: Object.keys(columnValues) };
 }
 
-module.exports = { writeDeckUrl, isConfigured, describeMissing };
+module.exports = { writeBackToGlide, isConfigured, COLUMNS, ENDPOINT };

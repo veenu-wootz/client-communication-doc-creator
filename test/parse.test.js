@@ -167,3 +167,19 @@ test('report_title and project_name are independent — neither aliases the othe
   assert.strictEqual(onlyReport.document.report_title, 'Bracket Assembly');
   assert.strictEqual(onlyReport.document.project_name, null);
 });
+
+test('rfq_row_id and rfq_version are read for the Glide write-back', () => {
+  const r = parseStrikePayload({
+    rfq_row_id: '9vtmhesRQxSBUP144VEsYg', rfq_version: 'V1',
+    items: glideItems([{ description: 'x' }]),
+  });
+  assert.strictEqual(r.writeback.rowId, '9vtmhesRQxSBUP144VEsYg');
+  assert.strictEqual(r.writeback.version, 'V1');
+
+  // The older row_id name still maps through.
+  const legacy = parseStrikePayload({ row_id: 'ROW9', items: glideItems([{ description: 'x' }]) });
+  assert.strictEqual(legacy.writeback.rowId, 'ROW9');
+
+  const absent = parseStrikePayload({ items: glideItems([{ description: 'x' }]) });
+  assert.deepStrictEqual([absent.writeback.rowId, absent.writeback.version], ['', '']);
+});

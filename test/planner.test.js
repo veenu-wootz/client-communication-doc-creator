@@ -492,6 +492,8 @@ test('41 · two numbered template slides close every deck', () => {
     const p = planSlides(fixtures[name]);
     const t = templates(p);
     assert.strictEqual(t.length, 2, `${name}: one single-image and one multi-image template`);
+    // One nudge per generated item slide, but a template is a worked example —
+    // the second shows the multi-image arrangement.
     assert.deepStrictEqual(t.map((x) => x.variant), ['single', 'multi']);
     assert.strictEqual(t[0].images.length, 1);
     assert.strictEqual(t[1].images.length, 3);
@@ -563,6 +565,20 @@ test('46 · the continuation note never overlaps content, the reply box, or the 
       assert.ok(note.y + note.h <= C.FOOTER_Y + 0.02,
         `${name} p${s.page}: continuation note collides with the footer`);
       assert.strictEqual(s.replyBox, null, 'a continuing slide never holds the reply box');
+    }
+  }
+});
+
+test('47 · the response area is a full-size box, not a strip at its top', () => {
+  // A one-line label meant clicking the reply area gave a sliver to type in.
+  for (const name of Object.keys(fixtures)) {
+    const p = planSlides(fixtures[name]);
+    for (const s of p.slides) {
+      if (!s.replyBox) continue;
+      const { box, labelBox } = s.replyBox;
+      assert.ok(labelBox.h >= box.h - C.REPLY_INSET * 2 - 0.01,
+        `${name} p${s.page}: reply text box is ${labelBox.h.toFixed(2)}in inside a ${box.h.toFixed(2)}in area`);
+      assert.ok(labelBox.y + labelBox.h <= box.y + box.h + 0.01, 'and stays within it');
     }
   }
 });

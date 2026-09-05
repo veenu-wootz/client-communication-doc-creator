@@ -245,3 +245,41 @@ test('the deck is a valid zip carrying the parts PowerPoint requires', async () 
     assert.doesNotThrow(() => parser.parse(xml), `${name} is not well-formed XML`);
   }
 });
+
+test('every picture placeholder is a real one, so it can be clicked and vanishes if unused', async () => {
+  // pptxgenjs cannot emit type="pic" (its PLACEHOLDER_TYPES table is empty), so
+  // the attribute is injected after write. If a library upgrade breaks that,
+  // this test is what catches it — otherwise the deck would quietly ship
+  // placeholders nobody can click.
+  for (const name of ['01-flagged-unflagged-flagged', '24-no-body-no-images', '21-cover-with-photo']) {
+    const { plan, zip } = await openDeck(name);
+
+    const expected = new Set(plan.slides.map((s) => s.masterName).filter(Boolean));
+    assert.ok(expected.size > 0, `${name}: expected at least one picture placeholder`);
+
+    let typed = 0;
+    for (const f of Object.keys(zip.files).filter((n) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n))) {
+      const xml = await zip.file(f).async('string');
+      if (!/name="PIC_[^"]*"/.test(xml)) continue;
+      assert.match(xml, /<p:ph[^>]*type="pic"/, `${name}: ${f} is not a picture placeholder`);
+      typed += 1;
+    }
+    assert.strictEqual(typed, expected.size, `${name}: every needed layout must be promoted`);
+  }
+});
+
+test('a slide with a real image gets no placeholder layout', async () => {
+  const { plan } = await openDeck('03-one-upright-image');
+  const item = plan.slides.find((s) => s.kind === 'item');
+  assert.strictEqual(item.masterName, undefined, 'an image is present, so nothing is offered');
+});
+
+test('the summary numbers every paragraph, with none left unbulleted', async () => {
+  const { plan, zip } = await openDeck('12-four-queries-two-updates');
+  const i = plan.slides.findIndex((s) => s.kind === 'contents');
+  const xml = await zip.file(`ppt/slides/slide${i + 1}.xml`).async('string');
+
+  const starts = [...xml.matchAll(/buAutoNum[^>]*startAt="(\d+)"/g)].map((m) => Number(m[1]));
+  assert.deepStrictEqual(starts, [1, 2, 3, 4, 5, 6],
+    'each entry states its own number — pptxgenjs always writes startAt, so omitting it renders 1,1,1');
+});

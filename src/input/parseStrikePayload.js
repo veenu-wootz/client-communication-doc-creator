@@ -47,6 +47,9 @@ const EMAIL_KEYS = ['to_email', 'toEmail', 'email', 'created_by_email', 'exporte
 // Where the finished deck is filed. Sent per submission so each report can land
 // in its own project folder; the GRAPH_* env vars are the fallback default.
 const DRIVE_KEYS  = ['drive_id', 'driveId', 'graph_drive_id', 'onedrive_drive_id'];
+// The Glide row this submission came from, and the RFQ version to echo back.
+const ROW_KEYS     = ['rfq_row_id', 'rfqRowId', 'row_id', 'rowId', 'rowID', 'glide_row_id'];
+const VERSION_KEYS = ['rfq_version', 'rfqVersion', 'RFQ Version', 'version'];
 const FOLDER_KEYS = ['folder_item_id', 'folderItemId', 'drive_item_id', 'driveItemId',
                      'folder_id', 'folderId', 'rfq_folder_id'];
 
@@ -324,14 +327,16 @@ function parseStrikePayload(body) {
       folderId: str(pick(src, FOLDER_KEYS) ?? pick(meta, FOLDER_KEYS)),
     },
     writeback: {
-      rowId: str(pick(src, ['row_id', 'rowId', 'rowID', 'glide_row_id'])),
+      rowId: str(pick(src, ROW_KEYS) ?? pick(meta, ROW_KEYS)),
+      version: str(pick(src, VERSION_KEYS) ?? pick(meta, VERSION_KEYS)),
+      // Table and column ids are fixed config on the Glide side, not per
+      // submission — kept only as an override for a different table.
       table: str(pick(src, ['table', 'table_name', 'tableName', 'glide_table'])),
-      column: str(pick(src, ['column', 'column_id', 'columnId', 'target_column'])),
     },
   };
 }
 
 module.exports = {
-  parseStrikePayload, FIELD_MAP, ITEM_MAP, DRIVE_KEYS, FOLDER_KEYS,
+  parseStrikePayload, FIELD_MAP, ITEM_MAP, DRIVE_KEYS, FOLDER_KEYS, ROW_KEYS, VERSION_KEYS,
   toBool, toIsoDate, cleanRichText, extractJsonObjects, coerceItemRows, undoubleQuotes,
 };

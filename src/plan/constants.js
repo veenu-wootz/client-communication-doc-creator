@@ -93,11 +93,9 @@ const CONTENTS_MAX_ENTRIES         = 12;  // then paginate — never trim (PLAN.
 // A slide with no image still reserves the image column and outlines it, so a
 // sender can see where to drop one. Outline only, no fill: if it is never
 // filled it reads as a reserved frame rather than an unfinished box.
-const PLACEHOLDER_DASH = 'dash';
 const PLACEHOLDER_LABEL = 'Add image';
 
 // ── Template slides (appended for the sender to copy) ────────
-const TEMPLATE_MASTER = 'TEMPLATE_SLIDE';
 const TEMPLATE_TITLE_PROMPT = 'Click to add title';
 const TEMPLATE_BODY_PROMPT  = 'Click to add text';
 const TEMPLATE_IMAGE_PROMPT = 'Click the icon to add a picture';
@@ -177,8 +175,8 @@ module.exports = {
   MIN_RENDER_DPI,
   GRID_BODY_MAX_LINES, GRID_MAX_CELLS,
   INCLUDE_SUMMARY_MIN_ITEMS, CONTENTS_MAX_ENTRIES,
-  PLACEHOLDER_DASH, PLACEHOLDER_LABEL,
-  TEMPLATE_MASTER, TEMPLATE_TITLE_PROMPT, TEMPLATE_BODY_PROMPT, TEMPLATE_IMAGE_PROMPT,
+  PLACEHOLDER_LABEL,
+  TEMPLATE_TITLE_PROMPT, TEMPLATE_BODY_PROMPT, TEMPLATE_IMAGE_PROMPT,
   FILL_TARGET, HARD_WRAP, LINE_HEIGHT,
   FONT, TYPE, BODY_SIZE_MAX, BODY_SIZE_MIN, BODY_SIZE_STEP,
   COLOR, HAIRLINE, CHIP,

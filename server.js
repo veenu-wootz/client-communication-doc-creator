@@ -23,7 +23,7 @@ const { renderPptx } = require('./src/render/renderPptx');
 const { sendDeckEmail } = require('./src/deliver/sendEmail');
 const { uploadDeck } = require('./src/deliver/upload');
 const { uploadToOneDrive } = require('./src/deliver/oneDriveUpload');
-const { writeDeckUrl } = require('./src/deliver/glideWrite');
+const { writeBackToGlide } = require('./src/deliver/glideWrite');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -69,6 +69,9 @@ function istStamp(d = new Date()) {
 
 /** Everything from raw webhook body to a rendered deck. Shared by both routes. */
 async function build(body) {
+  // One instant for the whole run, so the filename, the Glide row and anything
+  // else that records "when" cannot disagree by a second.
+  const generatedAt = new Date();
   const parsed = parseStrikePayload(body);
   console.log(`  parsed: ${parsed.items.length} rows, report "${parsed.document.report_title || '(none)'}"`);
 
@@ -80,9 +83,9 @@ async function build(body) {
 
   const buffer = await renderPptx(plan);
   const project = parsed.document.project_name || parsed.document.report_title;
-  const filename = `Queries - ${safe(project)} - ${istStamp()}.pptx`;   // filename wording is the sender's convention, kept as asked
+  const filename = `Queries - ${safe(project)} - ${istStamp(generatedAt)}.pptx`;
 
-  return { parsed, plan, buffer, filename };
+  return { parsed, plan, buffer, filename, generatedAt };
 }
 
 app.get('/', (req, res) => {
@@ -97,7 +100,7 @@ app.post('/generate', async (req, res) => {
 
   try {
     console.log('\n━━━━━━ /generate ━━━━━━');
-    const { parsed, plan, buffer, filename } = await build(req.body);
+    const { parsed, plan, buffer, filename, generatedAt } = await build(req.body);
     console.log(`  planned ${plan.meta.totalSlides} slides — ${plan.meta.itemCount} points`);
     console.log(`  rendered ${(buffer.length / 1024).toFixed(0)} KB`);
 
@@ -107,14 +110,18 @@ app.post('/generate', async (req, res) => {
     let upload = await uploadToOneDrive(buffer, filename, parsed.storage);
     if (!upload.url) upload = await uploadDeck(buffer, filename);
 
-    if (upload.url) {
-      try {
-        await writeDeckUrl(parsed.writeback, upload.url);
-      } catch (e) {
-        console.warn(`  glide write failed (non-fatal): ${e.message}`);
-      }
-    } else {
-      await writeDeckUrl(parsed.writeback, null);
+    try {
+      await writeBackToGlide(parsed.writeback, {
+        fileId: upload.itemId,
+        fileLink: upload.url,
+        // ISO for Glide's date column — a display string like "05 Sep 2026
+        // 7.10 PM" would not sort or filter there. The readable form is in the
+        // filename, where a person actually reads it.
+        generatedOn: generatedAt.toISOString(),
+        generatedBy: parsed.delivery.to || parsed.document.created_by,
+      });
+    } catch (e) {
+      console.warn(`  glide write failed (non-fatal): ${e.message}`);
     }
 
     // The guaranteed delivery path — always last, always attempted.

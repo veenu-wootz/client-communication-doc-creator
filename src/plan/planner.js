@@ -165,7 +165,9 @@ function planCover(n, showInstruction) {
   const hasPhoto = Boolean(d.product_photo && d.product_photo.ok !== false);
   const variant = hasPhoto ? 'A' : 'B';
 
-  const textW = hasPhoto ? C.CONTENT_W * 0.55 : C.CONTENT_W * 0.70;
+  // The column is reserved either way: with a photo it holds one, without it
+  // holds a placeholder so the sender can add one. The cover is a template.
+  const textW = C.CONTENT_W * 0.55;
   const blocks = [];
   let y = C.CONTENT_Y;
 
@@ -232,6 +234,7 @@ function planCover(n, showInstruction) {
     blocks,
     instruction,
     photo: hasPhoto ? { image: d.product_photo, zone: photoZone } : null,
+    photoPlaceholder: hasPhoto ? null : { box: photoZone },
     logo: logoBox(d.logo, C.COVER_LOGO_H, true),
     footer: null,   // prepared-by now lives in the body; the logo carries the rest
   };
@@ -375,7 +378,10 @@ function buildItemSlide(item, attempt, { continued, isLast }) {
           box: { x: C.CONTENT_X, y: C.REPLY_Y, w: C.CONTENT_W, h: C.REPLY_H },
           labelBox: {
             x: C.CONTENT_X + C.REPLY_INSET, y: C.REPLY_Y + C.REPLY_INSET,
-            w: C.CONTENT_W - C.REPLY_INSET * 2, h: heightOf(1, C.TYPE.replyLabel.size),
+            w: C.CONTENT_W - C.REPLY_INSET * 2,
+            // Fills the box, so clicking anywhere in the reply area lands the
+            // cursor in a text box the full size of the space provided.
+            h: C.REPLY_H - C.REPLY_INSET * 2,
           },
         }
       : null,
@@ -484,14 +490,18 @@ function planTemplates(n, startNumber) {
         box: { x: C.CONTENT_X, y: C.REPLY_Y, w: C.CONTENT_W, h: C.REPLY_H },
         labelBox: {
           x: C.CONTENT_X + C.REPLY_INSET, y: C.REPLY_Y + C.REPLY_INSET,
-          w: C.CONTENT_W - C.REPLY_INSET * 2, h: heightOf(1, C.TYPE.replyLabel.size),
+          w: C.CONTENT_W - C.REPLY_INSET * 2,
+          // Fills the box rather than sitting as a one-line strip at the top, so
+          // clicking anywhere in the reply area lands the cursor in a text box
+          // the full size of the space provided.
+          h: C.REPLY_H - C.REPLY_INSET * 2,
         },
       },
       logo: logoBox(n.document.logo, C.FOOTER_LOGO_H, false),
     };
   };
 
-  // A — one picture beside the text, matching IMAGE_PLACEHOLDER.
+  // A — one picture beside the text, matching IMAGE_SIDE.
   const imgW = colW * C.SIDE_IMAGE_FRACTION;
   const single = {
     ...chrome(startNumber),
@@ -501,7 +511,9 @@ function planTemplates(n, startNumber) {
     bodyBox: { x: c.x + imgW + C.GUTTER, y: c.y, w: colW - imgW, h: c.h },
   };
 
-  // B — three pictures in the grid, body above, matching IMAGE_GRID.
+  // B — three pictures in the grid, body above, matching IMAGE_GRID. The
+  // one-nudge-per-page rule is about generated item slides; a template is a
+  // worked example, so it shows the multi-image arrangement.
   const bodyH = heightOf(C.GRID_BODY_MAX_LINES, C.TYPE.body.size);
   const gridY = c.y + bodyH + C.GUTTER;
   const gridH = c.h - (gridY - c.y);

@@ -17,6 +17,7 @@
  */
 
 const fs = require('fs');
+const JSZip = require('jszip');
 const PptxGenJS = require('pptxgenjs');
 const C = require('../plan/constants');
 
@@ -69,23 +70,49 @@ function drawChip(slide, pres, chip) {
 }
 
 /**
- * The reserved image column on a slide that has no picture.
+ * Every picture placeholder in the deck is a REAL PowerPoint placeholder, not a
+ * drawn box: it offers the click-to-insert icon, and it prints nothing if the
+ * sender never uses it. A drawn rectangle did neither — it gave no way to add an
+ * image and had to be deleted by hand (PLAN.md §5.16).
  *
- * Outline only, no fill: if the sender never drops an image in, this reads as a
- * deliberately reserved frame rather than an unfinished box. Drawn rather than a
- * native PowerPoint placeholder because its position is computed per slide, and
- * native placeholders live at fixed positions on a master (PLAN.md §5.14).
+ * Placeholders can only be declared on a master, so one master is defined per
+ * distinct geometry the deck actually needs. In practice that is two or three.
  */
-function drawImagePlaceholder(slide, pres, ph) {
-  slide.addShape(pres.ShapeType.rect, {
-    x: ph.box.x, y: ph.box.y, w: ph.box.w, h: ph.box.h,
-    fill: { type: 'none' },
-    line: { color: C.COLOR.border, width: C.HAIRLINE, dashType: C.PLACEHOLDER_DASH },
-  });
-  slide.addText(C.PLACEHOLDER_LABEL, textOpts(
-    { x: ph.box.x, y: ph.box.y + ph.box.h / 2 - 0.14, w: ph.box.w, h: 0.28 },
-    { size: C.TYPE.caption.size, color: C.COLOR.muted, align: 'center' },
-  ));
+function masterKeyFor(boxes) {
+  const mm = (v) => Math.round(v * 100);
+  return `PIC_${boxes.map((b) => [mm(b.x), mm(b.y), mm(b.w), mm(b.h)].join('_')).join('__')}`;
+}
+
+/** Every slide that needs a picture placeholder, with the box it needs. */
+function placeholderSlots(plan) {
+  const slots = new Map();
+  const want = (boxes) => { const k = masterKeyFor(boxes); if (!slots.has(k)) slots.set(k, boxes); return k; };
+
+  for (const s of plan.slides) {
+    if (s.kind === 'cover' && s.photoPlaceholder) s.masterName = want([s.photoPlaceholder.box]);
+    else if (s.kind === 'item' && s.placeholder) s.masterName = want([s.placeholder.box]);
+    else if (s.kind === 'template') s.masterName = want(s.images);
+  }
+  return slots;
+}
+
+function definePictureMasters(pres, slots) {
+  for (const [name, boxes] of slots) {
+    pres.defineSlideMaster({
+      title: name,
+      objects: boxes.map((box, i) => ({
+        placeholder: {
+          options: {
+            name: `pic${i + 1}`, type: 'pic',
+            x: box.x, y: box.y, w: box.w, h: box.h,
+            fontFace: C.FONT, fontSize: C.TYPE.caption.size,
+            color: C.COLOR.muted, align: 'center', valign: 'middle',
+          },
+          text: C.PLACEHOLDER_LABEL,
+        },
+      })),
+    });
+  }
 }
 
 /** A missing or unreadable image: a filled rectangle naming the file. §13 */
@@ -202,12 +229,22 @@ function renderContents(pres, slide, s) {
   // click in, press Enter, and get the next number for free — the single
   // biggest thing standing between this deck and being used as a template.
   if (s.list) {
+    // The bullet must sit on EVERY run, not on the shape: pptxgenjs applies a
+    // shape-level bullet to the first paragraph only and stamps <a:buNone/> on
+    // the rest, which is why the list came out numbered "1", blank, "1".
+    //
+    // Each paragraph also declares its own number. pptxgenjs always writes a
+    // startAt attribute (defaulting to 1), so leaving it off every paragraph
+    // would render 1, 1, 1 — stating the real number makes it deterministic.
     slide.addText(
-      s.list.entries.map((e) => ({ text: toText(e.lines), options: { breakLine: true } })),
-      {
-        ...textOpts(s.list.box, { size: s.list.size }),
-        bullet: { type: 'number', numberStartAt: s.list.startAt, indent: s.list.indent * 72 },
-      },
+      s.list.entries.map((e) => ({
+        text: toText(e.lines),
+        options: {
+          bullet: { type: 'number', numberStartAt: e.n, indent: s.list.indent * 72 },
+          breakLine: true,
+        },
+      })),
+      textOpts(s.list.box, { size: s.list.size }),
     );
   }
   for (const t of s.tail || []) {
@@ -236,7 +273,6 @@ function renderItem(pres, slide, s) {
     slide.addText(toText(s.body.lines), textOpts(s.body.box, { size: s.body.size }));
   }
 
-  if (s.placeholder) drawImagePlaceholder(slide, pres, s.placeholder);
   for (const im of s.images) drawImage(slide, pres, im);
 
   if (s.continuesNote) {
@@ -261,61 +297,17 @@ function renderItem(pres, slide, s) {
   drawFooter(slide, s);
 }
 
-/**
- * Define one master per template variant.
- *
- * Native placeholders are what make these safe to ship: PowerPoint shows a
- * "click to add" prompt while editing and renders nothing at all if the sender
- * never touches them, unlike a drawn box which would print empty.
- */
-function defineTemplateMasters(pres, templates) {
-  for (const t of templates) {
-    const objects = [
-      {
-        placeholder: {
-          options: {
-            name: 'title', type: 'title',
-            x: t.titleBox.x + 0.95, y: t.titleBox.y,
-            w: t.titleBox.w - 0.95, h: t.titleBox.h,
-            fontFace: C.FONT, fontSize: C.TYPE.slideHeader.size, bold: true, color: C.COLOR.ink,
-            margin: 0, valign: 'middle',
-          },
-          text: C.TEMPLATE_TITLE_PROMPT,
-        },
-      },
-      {
-        placeholder: {
-          options: {
-            name: 'body', type: 'body',
-            x: t.bodyBox.x, y: t.bodyBox.y, w: t.bodyBox.w, h: t.bodyBox.h,
-            fontFace: C.FONT, fontSize: C.TYPE.body.size, color: C.COLOR.ink,
-            margin: 0, valign: 'top',
-          },
-          text: C.TEMPLATE_BODY_PROMPT,
-        },
-      },
-    ];
-
-    t.images.forEach((box, i) => {
-      objects.push({
-        placeholder: {
-          options: {
-            name: `pic${i + 1}`, type: 'pic',
-            x: box.x, y: box.y, w: box.w, h: box.h,
-            fontFace: C.FONT, fontSize: C.TYPE.caption.size, color: C.COLOR.muted, align: 'center',
-          },
-          text: C.TEMPLATE_IMAGE_PROMPT,
-        },
-      });
-    });
-
-    pres.defineSlideMaster({ title: `${C.TEMPLATE_MASTER}_${t.variant}`, objects });
-  }
-}
-
-/** A template slide: chrome drawn as usual, content left to the placeholders. */
+/** A template slide: chrome as usual, the picture left to its placeholder. */
 function renderTemplate(pres, slide, s) {
   drawChip(slide, pres, s.header.chip);
+
+  slide.addText(C.TEMPLATE_TITLE_PROMPT, textOpts(
+    { x: s.titleBox.x + 0.95, y: s.titleBox.y, w: s.titleBox.w - 0.95, h: s.titleBox.h },
+    { size: C.TYPE.slideHeader.size, bold: true, color: C.COLOR.border, valign: 'middle' },
+  ));
+  slide.addText(C.TEMPLATE_BODY_PROMPT, textOpts(s.bodyBox, {
+    size: C.TYPE.body.size, color: C.COLOR.border,
+  }));
 
   slide.addShape(pres.ShapeType.roundRect, {
     x: s.replyBox.box.x, y: s.replyBox.box.y, w: s.replyBox.box.w, h: s.replyBox.box.h,
@@ -331,6 +323,45 @@ function renderTemplate(pres, slide, s) {
   drawFooter(slide, s);
 }
 
+/**
+ * Turn our generic placeholders into real PICTURE placeholders.
+ *
+ * pptxgenjs cannot do this: its PLACEHOLDER_TYPES table is empty, so the branch
+ * that would write type="pic" never fires and every placeholder it emits is a
+ * plain one. A plain placeholder still disappears when unused, but it offers no
+ * click-to-insert-picture icon — which is the half the sender actually needs.
+ *
+ * So the attribute is injected afterwards, into our own PIC_* layouts only. The
+ * match is asserted rather than assumed: if a pptxgenjs upgrade changes the
+ * shape of this XML, this must fail loudly instead of quietly reverting to
+ * placeholders nobody can click.
+ */
+async function promotePicturePlaceholders(buffer, expected) {
+  if (expected === 0) return { buffer, promoted: 0 };
+
+  const zip = await JSZip.loadAsync(buffer);
+  const layouts = Object.keys(zip.files).filter((n) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(n));
+  let promoted = 0;
+
+  for (const name of layouts) {
+    const xml = await zip.file(name).async('string');
+    if (!/name="PIC_[^"]*"/.test(xml)) continue;          // not one of ours
+    if (/<p:ph[^>]*type="pic"/.test(xml)) { promoted += 1; continue; }
+
+    const next = xml.replace(/<p:ph\b/g, '<p:ph type="pic"');
+    if (next === xml) continue;
+    zip.file(name, next);
+    promoted += 1;
+  }
+
+  if (promoted !== expected) {
+    console.warn(`  ⚠ picture placeholders: promoted ${promoted} of ${expected} — `
+      + 'image slots will show a text prompt instead of an insert icon');
+  }
+
+  return { buffer: await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }), promoted };
+}
+
 // ── Entry point ──────────────────────────────────────────────
 
 /**
@@ -344,16 +375,15 @@ async function renderPptx(plan) {
   pres.defineLayout({ name: LAYOUT_NAME, width: C.SLIDE_W, height: C.SLIDE_H });
   pres.layout = LAYOUT_NAME;
 
-  defineTemplateMasters(pres, plan.slides.filter((s) => s.kind === 'template'));
+  const slots = placeholderSlots(plan);
+  definePictureMasters(pres, slots);
 
   pres.author = plan.document.created_by || 'Wootz';
   pres.company = 'Wootz';
   pres.title = plan.document.report_title || 'Client communication';
 
   for (const s of plan.slides) {
-    const slide = s.kind === 'template'
-      ? pres.addSlide({ masterName: `${C.TEMPLATE_MASTER}_${s.variant}` })
-      : pres.addSlide();
+    const slide = s.masterName ? pres.addSlide({ masterName: s.masterName }) : pres.addSlide();
     slide.background = { color: C.COLOR.paper };
 
     if (s.kind === 'template') renderTemplate(pres, slide, s);
@@ -362,7 +392,9 @@ async function renderPptx(plan) {
     else renderItem(pres, slide, s);
   }
 
-  return pres.write({ outputType: 'nodebuffer' });
+  const raw = await pres.write({ outputType: 'nodebuffer' });
+  const { buffer } = await promotePicturePlaceholders(raw, slots.size);
+  return buffer;
 }
 
-module.exports = { renderPptx, toText };
+module.exports = { renderPptx, toText, masterKeyFor, promotePicturePlaceholders };
