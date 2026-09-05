@@ -84,4 +84,5 @@ Node only — no native rendering, no LibreOffice, no Docker needed. Runs on Ren
 | `test/planner.test.js` | The §14 acceptance cases against the slide plan: numbering, layout selection, grid geometry, reply boxes, contents pagination, grouping, determinism, and that every box sits within the margins |
 | `test/pptx.test.js` | The rendered OOXML: canvas size, shape bounds, reply-box uniqueness, no query numbers on update slides, no ellipsis, well-formed XML, byte-stable slides across runs |
 | `test/enrich.test.js` | The fallback chain, with no API key present |
+| `test/filename.test.js` | The IST timestamp in the filename — timezone offset, midnight rollover, month format matching the deck footer, and no characters OneDrive rejects |
 | `test/parse.test.js` | The Strike/Glide payload parser against shapes seen in a real export — rows joined into one string, CSV quoting, markdown, malformed rows |

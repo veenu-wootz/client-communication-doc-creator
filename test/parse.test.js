@@ -123,3 +123,38 @@ test('helpers behave on their own', () => {
   assert.strictEqual(undoubleQuotes('"{""a"":1}"'), '{"a":1}');
   assert.strictEqual(cleanRichText('**bold**  \n\n\n\nnext'), 'bold\n\nnext');
 });
+
+test('the OneDrive destination is read from the payload, with aliases', () => {
+  const canonical = parseStrikePayload({
+    report_title: 'T', drive_id: 'b!abc', folder_item_id: '01FOLDER',
+    items: glideItems([{ description: 'x' }]),
+  });
+  assert.deepStrictEqual(canonical.storage, { driveId: 'b!abc', folderId: '01FOLDER' });
+
+  const aliased = parseStrikePayload({
+    report_title: 'T', driveId: 'b!abc', drive_item_id: '01FOLDER',
+    items: glideItems([{ description: 'x' }]),
+  });
+  assert.deepStrictEqual(aliased.storage, { driveId: 'b!abc', folderId: '01FOLDER' });
+
+  const absent = parseStrikePayload({ report_title: 'T', items: glideItems([{ description: 'x' }]) });
+  assert.deepStrictEqual(absent.storage, { driveId: '', folderId: '' },
+    'no destination in the payload falls through to the env default downstream');
+});
+
+test('project_name is read on its own, and mirrors report_title when only one is sent', () => {
+  const both = parseStrikePayload({
+    report_title: 'Deck heading', project_name: 'Folder name',
+    items: glideItems([{ description: 'x' }]),
+  });
+  assert.strictEqual(both.document.report_title, 'Deck heading');
+  assert.strictEqual(both.document.project_name, 'Folder name', 'kept separate when both are sent');
+
+  const onlyProject = parseStrikePayload({
+    project_name: 'Test - 2 1014 - Testing Query PPT',
+    items: glideItems([{ description: 'x' }]),
+  });
+  assert.strictEqual(onlyProject.document.project_name, 'Test - 2 1014 - Testing Query PPT');
+  assert.strictEqual(onlyProject.document.report_title, 'Test - 2 1014 - Testing Query PPT',
+    'sending only project_name populates both');
+});

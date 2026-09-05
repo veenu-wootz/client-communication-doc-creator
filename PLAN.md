@@ -322,7 +322,67 @@ went unnoticed while nothing sat directly beneath the content area; the moment
 the continuation note did, the geometry test caught it. Fixed by giving the
 caption box the text height only, since the gap is already spent on placement.
 
-### 5.10 Known consequence, not a bug
+### 5.11 SMTP_FROM_NAME is a no-op on Gmail relay (2026-09-04)
+
+Confirmed by testing: setting `SMTP_FROM_NAME` while `SMTP_SERVICE=gmail` has no
+effect. Two different values (`Wootz.Strike`, then `Wootz.Work`) both sent
+correctly per our own code — verified by printing the loaded env var
+immediately before the send — and both arrived displaying as `"Wootz"`
+regardless. Gmail's SMTP relay overrides the `From` display name with the
+sending Google Account's own "Send mail as" name, independent of the header
+the application sends; this is Gmail-side anti-spoofing enforcement, not
+something nodemailer or this codebase controls.
+
+The variable still works correctly on `office365`, where the mismatch it was
+built to fix (PLAN.md §5.6) actually applies. Documented in `.env.example` so
+this isn't rediscovered.
+
+### 5.12 OneDrive as the file store (2026-09-05)
+
+Decks are filed to OneDrive/SharePoint via Microsoft Graph. There is no Graph
+API for authoring PowerPoint content — Excel has a workbook API, PowerPoint has
+no equivalent — so generating the file here and uploading it is the only real
+approach, not a workaround.
+
+| Decision | Reasoning |
+|---|---|
+| **OneDrive is primary, S3 is the fallback** | S3 was never configured in practice (every run logged "upload: skipped") and needs an AWS account. OneDrive puts the deck where the team already works. S3 code stays, costs nothing, and runs only if OneDrive produces no URL. |
+| **The destination comes from the payload**, `GRAPH_*` env vars are the fallback | Strike sends `drive_id` and `folder_item_id` per submission, so each report lands in its own project folder. Verified end-to-end with the env defaults deliberately unset. |
+| `conflictBehavior=rename` | Two submissions for the same project on the same day would otherwise silently overwrite each other, and a client deck lost that way is hard to notice. |
+| Simple `PUT`, no upload session | Decks run 57–900 KB, far below the threshold where chunked upload is needed. |
+
+**Scope of the credentials, measured not assumed.** The app registration carries
+`Sites.Selected`, not `Files.ReadWrite.All`. Tenant-wide site search returns
+`accessDenied`, so it cannot roam the tenant — but `Sites.Selected` is scoped to
+a **site**, not a folder, and the granted site is a personal OneDrive whose root
+lists 94 items. So the app can write anywhere in that drive; the folder id is an
+address, not a boundary. This scope pre-existed this project (another service
+writes PDFs with the same registration). Narrowing it would mean a dedicated
+SharePoint site for tool output — noted in §8 rather than assumed.
+
+The returned `webUrl` opens the deck in PowerPoint Online in edit mode, so the
+sender can adjust a slide before forwarding. It is access-controlled, not a
+public link — fine for internal use, but the URL written back to Glide only
+opens for people with access to that drive.
+
+### 5.13 Filename and project_name (2026-09-05)
+
+Decks are filed as **`Queries - {project_name} - {DD Mon YYYY H.MM AM/PM}.pptx`**,
+the timestamp being generation time in IST — not the submission's `created_at`,
+since the name records when the deck was produced.
+
+`project_name` is its own field rather than reusing `report_title`. Sending only
+`project_name` populates both (it is an alias of `report_title` too), so the
+common case needs one field; they stay separable if a filename and a cover
+heading ever need to differ.
+
+Two details worth keeping: the time separator is a dot because a colon is
+illegal in OneDrive/SharePoint filenames, and months are formatted with the same
+three-letter list `formatDate` uses, so the filename and the deck's own footer
+can't disagree. `en-GB` renders September as "Sept", which is why the month is
+mapped explicitly rather than taken from the locale.
+
+### 5.14 Known consequence, not a bug
 
 A long body pushes an item across several slides — 900 words with four images plans to five
 item slides, one image each. That is the no-truncation rule working as intended: the
@@ -378,13 +438,14 @@ engine is the only honest way to verify what PowerPoint will do.
 | AWS S3 credentials | **OPEN** — optional by design (T6); absence is a logged skip, not an error. |
 | Which LLM provider is the default | Resolved by environment — whichever key is present. |
 | Does the 3–4 image grid read well at ~1.6in tall? | **Needs eyes on a real deck** — see §5.4. `npm run sample` then open `05-three-images.pptx`. |
+| Should tool output live in its own SharePoint site? | **OPEN** — `Sites.Selected` grants at site level, so the app can currently write anywhere in the target OneDrive (94 top-level folders, including customer documents). A dedicated site would scope it to exactly what the tool needs. One-time admin ask. |
 | Titles without enrichment are weak | **Expected** — with no API key the fallback yields "There are five queries" rather than "Crankshaft casting and tolerance queries". The structure is right, the wording is not. Enrichment is what fixes it. |
 | Is the reply box worth 1.10in? | **OPEN** — it plus its gap take 1.30in of every query slide. Dropping it to ~0.85in would hand 0.25in (~6%) to the image. Not changed unilaterally: the box has to look like somewhere you would write. |
 | Does PowerPoint's Save-as-PDF hold the layout? | **Needs a manual check** — no rendering engine here can answer it. |
 
 ## 9. Status
 
-Built and passing 76 tests: the planner and its geometry, the rendered OOXML, and the
+Built and passing 82 tests: the planner and its geometry, the rendered OOXML, and the
 enrichment fallback chain. `npm run sample` renders 21 fixtures to 114 slides.
 
 The whole pipeline runs with **no credentials at all** — no LLM key, no SMTP, no S3, no

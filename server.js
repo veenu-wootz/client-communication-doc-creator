@@ -22,6 +22,7 @@ const { planSlides } = require('./src/plan/planner');
 const { renderPptx } = require('./src/render/renderPptx');
 const { sendDeckEmail } = require('./src/deliver/sendEmail');
 const { uploadDeck } = require('./src/deliver/upload');
+const { uploadToOneDrive } = require('./src/deliver/oneDriveUpload');
 const { writeDeckUrl } = require('./src/deliver/glideWrite');
 
 const app = express();
@@ -44,6 +45,28 @@ app.use(express.json({ limit: '50mb' }));
 
 const safe = (s) => String(s || 'document').replace(/[^a-zA-Z0-9\-_. ]/g, '_').trim();
 
+/**
+ * "05 Sep 2026 2.48 PM" in IST, for the filename.
+ *
+ * Generation time, not the submission's created_at — the filename records when
+ * the deck was produced. A dot separates the time because a colon is illegal
+ * in OneDrive/SharePoint filenames.
+ */
+function istStamp(d = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit', month: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).formatToParts(d).reduce((a, p) => ({ ...a, [p.type]: p.value }), {});
+
+  // Same three-letter months the deck's own footer uses, so the filename and
+  // the slides never disagree about how a date is written.
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = MONTHS[Number(parts.month) - 1];
+
+  return `${parts.day} ${month} ${parts.year} ${parts.hour}.${parts.minute} ${parts.dayPeriod.toUpperCase()}`;
+}
+
 /** Everything from raw webhook body to a rendered deck. Shared by both routes. */
 async function build(body) {
   const parsed = parseStrikePayload(body);
@@ -56,7 +79,8 @@ async function build(body) {
   plan.meta.warnings.push(...(parsed.warnings || []), ...enriched.warnings, ...prepared.warnings);
 
   const buffer = await renderPptx(plan);
-  const filename = `${safe(parsed.document.report_title)} — ${plan.meta.queryCount} queries — ${parsed.document.created_at}.pptx`;
+  const project = parsed.document.project_name || parsed.document.report_title;
+  const filename = `Queries - ${safe(project)} - ${istStamp()}.pptx`;
 
   return { parsed, plan, buffer, filename };
 }
@@ -78,7 +102,11 @@ app.post('/generate', async (req, res) => {
     console.log(`  rendered ${(buffer.length / 1024).toFixed(0)} KB`);
 
     // Optional, in order. Each one skipping is normal, not an error.
-    const upload = await uploadDeck(buffer, filename);
+    // OneDrive first — it's the configured store and puts the deck where the
+    // team already works. S3 stays as a fallback for whoever configures it.
+    let upload = await uploadToOneDrive(buffer, filename, parsed.storage);
+    if (!upload.url) upload = await uploadDeck(buffer, filename);
+
     if (upload.url) {
       try {
         await writeDeckUrl(parsed.writeback, upload.url);
@@ -128,4 +156,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, build };
+module.exports = { app, build, istStamp };

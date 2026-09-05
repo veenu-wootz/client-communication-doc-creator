@@ -19,6 +19,10 @@ const FIELD_MAP = {
   // One free-text label instead of separate part/PO fields — it can carry a
   // part number, a PO number, or a name, whichever the sender has.
   report_title:       ['report_title', 'reportTitle', 'Report Title', 'project_name', 'projectName', 'Project Name', 'project', 'title'],
+  // Names the file. Usually the same value as report_title — sending only
+  // project_name populates both — but kept separate so the filename and the
+  // deck's cover heading can differ if a submission ever needs that.
+  project_name:       ['project_name', 'projectName', 'Project Name', 'project', 'report_title', 'reportTitle'],
   reference_name:     ['reference_name', 'referenceName', 'Reference Name', 'reference', 'part_number', 'partNumber', 'Part Number'],
   addressee:          ['addressee', 'addressed_to', 'addressedTo', 'Addressed to', 'attention', 'contact_name'],
   additional_details: ['additional_details', 'additional_information', 'Additional Information', 'additionalInfo', 'notes', 'remarks'],
@@ -39,6 +43,12 @@ const ITEM_MAP = {
 const ITEM_ARRAY_KEYS = ['items', 'queries', 'sections', 'rows', 'entries', 'Query/Update', 'queryUpdates'];
 const IMAGE_KEYS = ['images', 'photos', 'Photo', 'photo', 'attachments', 'files'];
 const EMAIL_KEYS = ['to_email', 'toEmail', 'email', 'created_by_email', 'exported_by', 'user_email', 'sender_email'];
+
+// Where the finished deck is filed. Sent per submission so each report can land
+// in its own project folder; the GRAPH_* env vars are the fallback default.
+const DRIVE_KEYS  = ['drive_id', 'driveId', 'graph_drive_id', 'onedrive_drive_id'];
+const FOLDER_KEYS = ['folder_item_id', 'folderItemId', 'drive_item_id', 'driveItemId',
+                     'folder_id', 'folderId', 'rfq_folder_id'];
 
 const norm = (k) => String(k).toLowerCase().replace(/[\s_\-/]/g, '');
 
@@ -309,6 +319,10 @@ function parseStrikePayload(body) {
       cc: str(pick(src, ['cc', 'cc_email', 'ccEmail'])),
       bcc: str(pick(src, ['bcc', 'bcc_email', 'bccEmail'])),
     },
+    storage: {
+      driveId: str(pick(src, DRIVE_KEYS) ?? pick(meta, DRIVE_KEYS)),
+      folderId: str(pick(src, FOLDER_KEYS) ?? pick(meta, FOLDER_KEYS)),
+    },
     writeback: {
       rowId: str(pick(src, ['row_id', 'rowId', 'rowID', 'glide_row_id'])),
       table: str(pick(src, ['table', 'table_name', 'tableName', 'glide_table'])),
@@ -318,6 +332,6 @@ function parseStrikePayload(body) {
 }
 
 module.exports = {
-  parseStrikePayload, FIELD_MAP, ITEM_MAP,
+  parseStrikePayload, FIELD_MAP, ITEM_MAP, DRIVE_KEYS, FOLDER_KEYS,
   toBool, toIsoDate, cleanRichText, extractJsonObjects, coerceItemRows, undoubleQuotes,
 };
