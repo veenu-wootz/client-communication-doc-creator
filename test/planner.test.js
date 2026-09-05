@@ -12,7 +12,8 @@ const { fixtures, doc, query, update, square, words } = require('./fixtures');
 
 const plan = (name) => planSlides(fixtures[name]);
 const items = (p) => p.slides.filter((s) => s.kind === 'item');
-const queryNumbers = (p) => items(p).filter((s) => s.queryNo && !s.continued).map((s) => s.queryNo);
+const numbers = (p) => items(p).filter((s) => !s.continued).map((s) => s.number);
+const templates = (p) => p.slides.filter((s) => s.kind === 'template');
 const allText = (p) => JSON.stringify(p);
 
 /** Every line of body text a plan renders for one item, joined. */
@@ -31,20 +32,17 @@ function imageCountOf(p, itemId) {
 
 // ── §14.1 / §14.2 — numbering ────────────────────────────────
 
-test('1 · numbers skip unflagged items, and queries come before updates', () => {
+test('1 · every item is numbered, in the order the sender wrote it', () => {
   const p = plan('01-flagged-unflagged-flagged');
-  assert.deepStrictEqual(queryNumbers(p), [1, 2]);
-
-  // Sections: both queries first in the sender's own order, then the update.
-  assert.deepStrictEqual(items(p).map((s) => s.itemId), ['a', 'c', 'b']);
-  assert.strictEqual(items(p).find((s) => s.itemId === 'b').queryNo, null);
+  // Flat model: the update between two queries is numbered like everything
+  // else and stays where it was put.
+  assert.deepStrictEqual(numbers(p), [1, 2, 3]);
+  assert.deepStrictEqual(items(p).map((s) => s.itemId), ['a', 'b', 'c']);
 });
 
-test('2 · ten alternating items number Q1–Q5, gapless', () => {
+test('2 · ten items number 1–10, gapless, regardless of needs_response', () => {
   const p = plan('02-alternating-ten');
-  assert.deepStrictEqual(queryNumbers(p), [1, 2, 3, 4, 5]);
-  assert.strictEqual(p.meta.queryCount, 5);
-  assert.strictEqual(p.meta.updateCount, 5);
+  assert.deepStrictEqual(numbers(p), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 });
 
 // ── §14.3–§14.6 — layout selection ───────────────────────────
@@ -101,24 +99,22 @@ test('7 · long body with four images: every word and image survives', () => {
   assert.ok(slides[0].images.length >= 1, 'the first slide keeps visual context');
 });
 
-test('8 · a multi-slide query carries exactly one correctly numbered reply box', () => {
+test('8 · a multi-slide item carries exactly one correctly numbered reply box', () => {
   const p = plan('07-long-body-4-images');
   const boxes = items(p).filter((s) => s.itemId === 'a' && s.replyBox);
   assert.strictEqual(boxes.length, 1);
-  assert.match(boxes[0].replyBox.label, /Q1$/);
+  assert.match(boxes[0].replyBox.label, /1$/);
   const slides = items(p).filter((s) => s.itemId === 'a');
   assert.strictEqual(slides[slides.length - 1].replyBox !== null, true, 'reply box is on the last slide');
 });
 
-test('9 · an unflagged item is labelled Update, with no number and no reply box', () => {
+test('9 · an update is numbered and gets a reply box like anything else', () => {
   const p = plan('09-unflagged-only');
-  for (const s of items(p)) {
-    assert.strictEqual(s.replyBox, null);
-    assert.strictEqual(s.queryNo, null);
-    assert.strictEqual(s.header.chip.text, 'Update', 'no slide is left unlabelled');
-    assert.strictEqual(s.header.chip.tone, 'update');
-  }
-  assert.ok(!/Q\d/.test(JSON.stringify(items(p))), 'no query number text on an update slide');
+  const slides = items(p);
+  assert.strictEqual(slides[0].number, 1);
+  assert.strictEqual(slides[0].header.chip.text, '1');
+  assert.ok(slides.at(-1).replyBox, 'reply box on every item, updates included');
+  assert.ok(!/\bQ\d/.test(JSON.stringify(slides)), 'no Q prefix survives anywhere');
 });
 
 // ── §14.10–§14.13 — contents slide ───────────────────────────
@@ -130,51 +126,57 @@ test('10 · two queries: no contents slide, instruction on the cover', () => {
   assert.ok(p.slides[0].instruction, 'cover carries the reply instruction');
 });
 
-test('11 · four queries: a summary listing exactly four query entries', () => {
+test('11 · four items: one summary slide listing all four', () => {
   const p = plan('11-four-queries');
   const contents = p.slides.filter((s) => s.kind === 'contents');
   assert.strictEqual(contents.length, 1);
-  assert.strictEqual(contents[0].rows.filter((r) => r.type === 'entry').length, 4);
   assert.strictEqual(contents[0].heading.text, 'Summary');
-  assert.match(contents[0].rows[0].text, /^QUERIES — 4 need your response$/);
+  assert.strictEqual(contents[0].list.entries.length, 4);
+  assert.strictEqual(contents[0].list.startAt, 1);
   assert.strictEqual(p.slides[0].instruction, null, 'instruction moves to the summary');
 });
 
-test('12 · the summary lists both sections, and keeps the count in the label', () => {
+test('12 · the summary is one flat numbered list, with no counts to go stale', () => {
   const c = plan('12-four-queries-two-updates').slides.find((s) => s.kind === 'contents');
-  const sections = c.rows.filter((r) => r.type === 'section').map((r) => r.text);
-  assert.deepStrictEqual(sections, ['QUERIES — 4 need your response', 'OTHER UPDATES']);
+  assert.strictEqual(c.list.entries.length, 6, 'queries and updates in one list');
+  assert.deepStrictEqual(c.list.entries.map((e) => e.n), [1, 2, 3, 4, 5, 6]);
+  assert.ok(c.list.entries.some((e) => /Fixture/.test(e.text)));
 
-  const entries = c.rows.filter((r) => r.type === 'entry');
-  assert.strictEqual(entries.filter((e) => e.n).length, 4, 'four numbered queries');
-  assert.ok(entries.some((e) => /Fixture/.test(e.text)), 'updates are named, not just counted');
-  assert.ok(entries.some((e) => /Timeline/.test(e.text)));
-
-  // The queries section comes first, so the count is the first thing read.
-  assert.strictEqual(c.rows[0].text, 'QUERIES — 4 need your response');
+  // A hardcoded "4 need a reply" would go stale the moment a slide is added.
+  const text = JSON.stringify(c);
+  assert.ok(!/need your response|QUERIES|OTHER UPDATES/.test(text), 'no section labels, no counts');
 });
 
-test('13 · zero flagged items: no contents, no numbers, no instruction', () => {
+test('13 · a deck of updates is numbered and answerable like any other', () => {
   const p = plan('13-zero-flagged');
-  assert.strictEqual(p.meta.queryCount, 0);
-  assert.ok(!p.slides.some((s) => s.kind === 'contents'));
-  assert.strictEqual(p.slides[0].instruction, null);
-  assert.ok(!items(p).some((s) => s.replyBox));
+  assert.strictEqual(p.meta.queryCount, 0, 'still counted for the email summary');
+  assert.deepStrictEqual(numbers(p), [1, 2]);
+  assert.ok(items(p).some((s) => s.replyBox), 'updates take replies too now');
 });
 
 // ── §14.14–§14.16 — degenerate input ─────────────────────────
 
-test('14 · an empty items array emits the cover alone', () => {
+test('14 · an empty items array emits the cover plus the blank templates', () => {
   const p = plan('14-empty-items');
-  assert.strictEqual(p.meta.totalSlides, 1);
   assert.strictEqual(p.slides[0].kind, 'cover');
+  assert.strictEqual(items(p).length, 0);
+  assert.strictEqual(templates(p).length, 2, 'the sender still gets something to start from');
 });
 
-test('15 · a cover with every optional field null composes without gaps', () => {
+test('15 · a cover with empty fields still shows every label, with a rule to write on', () => {
   const cover = plan('15-cover-all-null').slides[0];
   assert.strictEqual(cover.variant, 'B');
-  assert.deepStrictEqual(cover.blocks.map((b) => b.kind), ['title']);
-  assert.ok(cover.footer.text.includes('Priya Nair'));
+
+  const labels = cover.blocks.filter((b) => b.kind === 'field').map((b) => b.label);
+  assert.ok(labels.includes('Reference number'), 'the label renders even with no value');
+  assert.ok(labels.includes('Additional information'));
+
+  const empty = cover.blocks.filter((b) => b.kind === 'field' && !b.filled);
+  assert.ok(empty.length > 0);
+  for (const b of empty) assert.ok(b.rule, 'an empty field gets a hairline rule, not a filled box');
+
+  const prepared = cover.blocks.find((b) => b.label === 'Prepared by');
+  assert.ok(prepared.lines.join(' ').includes('Priya Nair'), 'author moved out of the footer');
 });
 
 test('16 · a broken image renders a placeholder and warns, never crashes', () => {
@@ -186,14 +188,13 @@ test('16 · a broken image renders a placeholder and warns, never crashes', () =
 
 // ── §14.17 / §14.18 — grouping ───────────────────────────────
 
-test('17 · five text-only updates group at most three per slide, in order', () => {
+test('17 · five updates each get their own slide, numbered in order', () => {
+  // Grouping is gone: uniform slides matter more than a shorter deck, because
+  // every slide has to be duplicable by hand (PLAN.md §5.14).
   const p = plan('17-five-updates');
-  const grouped = p.slides.filter((s) => s.kind === 'grouped');
-  assert.ok(grouped.length >= 1);
-  for (const g of grouped) assert.ok(g.blocks.length <= C.MAX_GROUPED_UPDATES);
-  const seen = p.slides.flatMap((s) =>
-    s.kind === 'grouped' ? s.blocks.map((b) => b.itemId) : s.kind === 'item' ? [s.itemId] : []);
-  assert.deepStrictEqual([...new Set(seen)], ['u0', 'u1', 'u2', 'u3', 'u4']);
+  assert.ok(!p.slides.some((s) => s.kind === 'grouped'), 'no grouped slides remain');
+  assert.deepStrictEqual(items(p).map((s) => s.itemId), ['u0', 'u1', 'u2', 'u3', 'u4']);
+  assert.deepStrictEqual(numbers(p), [1, 2, 3, 4, 5]);
 });
 
 test('18 · an update between two queries is never grouped', () => {
@@ -228,12 +229,20 @@ test('21 · forty queries paginate the contents with no entry shortened', () => 
   const p = plan('22-forty-queries');
   const contents = p.slides.filter((s) => s.kind === 'contents');
   assert.ok(contents.length > 1, 'expected the contents list to paginate');
-  const entries = contents.flatMap((s) => s.rows.filter((r) => r.type === 'entry'));
+  const entries = contents.flatMap((s) => s.list.entries);
   assert.strictEqual(entries.length, 40);
   assert.deepStrictEqual(entries.map((e) => e.n), Array.from({ length: 40 }, (_, i) => i + 1));
   for (const e of entries) assert.ok(!e.text.includes('…'), 'summary entries are never truncated');
   assert.strictEqual(contents[0].heading.text, 'Summary');
   assert.strictEqual(contents.at(-1).tail.at(-1).kind, 'instruction');
+
+  // Each paginated slide restarts PowerPoint's own numbering where the last left
+  // off, so the visible numbers stay continuous across the break.
+  let expected = 1;
+  for (const c of contents) {
+    assert.strictEqual(c.list.startAt, expected, 'numbering must continue across summary slides');
+    expected += c.list.entries.length;
+  }
 });
 
 test('22 · an empty body with one image uses the stacked variant', () => {
@@ -306,15 +315,19 @@ function collectBoxes(s) {
     if (s.photo) add(s.photo.zone, 'photo');
   } else if (s.kind === 'contents') {
     if (s.heading) add(s.heading.box, 'heading');
-    for (const r of s.rows) add(r.box, `${r.type}${r.n ? ` Q${r.n}` : ''}`);
+    if (s.list) add(s.list.box, 'summary list');
     for (const t of s.tail || []) add(t.box, t.kind);
-  } else if (s.kind === 'grouped') {
-    if (s.chip) add(s.chip.box, 'update chip');
-    for (const b of s.blocks) { add(b.title.box, 'block title'); if (b.body) add(b.body.box, 'block body'); }
+  } else if (s.kind === 'template') {
+    add(s.header.chip.box, 'chip');
+    add(s.titleBox, 'title placeholder');
+    add(s.bodyBox, 'body placeholder');
+    for (const b of s.images) add(b, 'image placeholder');
+    add(s.replyBox.box, 'reply box');
   } else if (s.kind === 'item') {
     if (s.header.chip) add(s.header.chip.box, 'chip');
     add(s.header.title.box, 'header title');
     if (s.body) add(s.body.box, 'body');
+    if (s.placeholder) add(s.placeholder.box, 'image placeholder');
     for (const im of s.images) { add(im.box, 'image'); if (im.caption) add(im.caption.box, 'caption'); }
     if (s.replyBox) { add(s.replyBox.box, 'reply box'); add(s.replyBox.labelBox, 'reply label'); }
   }
@@ -335,12 +348,16 @@ test('27 · the contents footer never prints underneath the logo', () => {
   }
 });
 
-test('28 · the contents slide drops the author, the cover keeps it', () => {
+test('28 · the author sits on the cover body, not in any footer', () => {
   const p = planSlides(fixtures['11-four-queries']);
-  assert.ok(p.slides[0].footer.text.includes('Priya Nair'), 'cover names the author');
+  const cover = p.slides[0];
+  assert.strictEqual(cover.footer, null, 'the cover footer is gone entirely');
+
+  const prepared = cover.blocks.find((b) => b.label === 'Prepared by');
+  assert.ok(prepared.lines.join(' ').includes('Priya Nair'));
+
   const contents = p.slides.find((s) => s.kind === 'contents');
-  assert.ok(!contents.footer.text.includes('Priya Nair'), 'contents does not — the logo covers it');
-  assert.ok(contents.footer.text.includes('2026'), 'contents keeps the date');
+  assert.ok(!contents.footer.text.includes('Priya Nair'), 'not repeated on the summary');
 });
 
 test('29 · a low-resolution image is not blown up past its own detail', () => {
@@ -380,9 +397,10 @@ test('32 · item_name appears above the header and names the SKU on contents', (
   assert.ok(bare.header.title.box.y < first.header.title.box.y);
 
   const contents = p.slides.find((s) => s.kind === 'contents');
-  const entries = contents.rows.filter((r) => r.type === 'entry');
-  assert.match(entries[0].text, /^Q1 · HEX NUT M12 — /);
-  assert.match(entries[2].text, /^Q3 · Tolerance stack-up$/, 'no SKU, no separator');
+  const entries = contents.list.entries;
+  // The number comes from PowerPoint's bullet, so the text is the title alone.
+  assert.match(entries[0].text, /^HEX NUT M12 — /);
+  assert.strictEqual(entries[3].text, 'Tolerance stack-up', 'no SKU, no separator');
 });
 
 test('33 · an item_name never displaces the query number', () => {
@@ -401,92 +419,91 @@ test('34 · a numbered list in the body keeps one point per line', () => {
   assert.strictEqual(numbered.length, 4, 'each point renders on its own line');
 });
 
-test('35 · the cover carries one reference field, not part plus PO', () => {
+test('35 · the cover is a template: every field label always present', () => {
   const cover = plan('01-flagged-unflagged-flagged').slides[0];
   const labels = cover.blocks.filter((b) => b.kind === 'field').map((b) => b.label);
-  assert.deepStrictEqual(labels, ['Reference', 'Attention']);
+  assert.deepStrictEqual(labels,
+    ['Reference number', 'Attention', 'Additional information', 'Prepared by']);
 });
 
 // ── Sections (PLAN.md §5.8) ──────────────────────────────────
 
-test('36 · every item slide is labelled — a number or an Update chip', () => {
+test('36 · every item slide carries a number chip, identical in style', () => {
   for (const name of Object.keys(fixtures)) {
     const p = planSlides(fixtures[name]);
-    for (const s of p.slides) {
-      if (s.kind === 'item') {
-        assert.ok(s.header.chip, `${name} p${s.page}: an unlabelled slide leaves the reader guessing`);
-        assert.strictEqual(s.header.chip.tone, s.queryNo ? 'query' : 'update');
-        if (s.queryNo) assert.strictEqual(s.header.chip.text, `Q${s.queryNo}`);
-        else assert.strictEqual(s.header.chip.text, 'Update');
-      }
-      if (s.kind === 'grouped') {
-        assert.ok(s.chip, `${name} p${s.page}: grouped updates need labelling too`);
-        assert.strictEqual(s.chip.text, 'Update');
-      }
+    for (const s of p.slides.filter((x) => x.kind === 'item')) {
+      assert.ok(s.header.chip, `${name} p${s.page}: an unlabelled slide reads as an oversight`);
+      assert.strictEqual(s.header.chip.text, String(s.number));
+      assert.strictEqual(s.header.chip.size, C.CHIP.size,
+        'one chip style everywhere, so a hand-added slide matches');
     }
   }
 });
 
-test('37 · queries come first, updates after, order kept inside each section', () => {
+test('37 · input order is preserved exactly — nothing is regrouped', () => {
   const p = plan('02-alternating-ten');
   const ids = items(p).filter((s) => !s.continued).map((s) => s.itemId);
-  const grouped = p.slides.filter((s) => s.kind === 'grouped').flatMap((s) => s.blocks.map((b) => b.itemId));
-  const seen = [...ids, ...grouped];
-
-  const queries = seen.filter((id) => id.startsWith('q'));
-  const updates = seen.filter((id) => id.startsWith('u'));
-
-  assert.deepStrictEqual(queries, ['q0', 'q2', 'q4', 'q6', 'q8'], 'queries keep the sender order');
-  assert.deepStrictEqual(updates, ['u1', 'u3', 'u5', 'u7', 'u9'], 'so do updates');
-
-  const lastQuery = seen.lastIndexOf(queries.at(-1));
-  const firstUpdate = seen.indexOf(updates[0]);
-  assert.ok(lastQuery < firstUpdate, 'no update appears before the final query');
+  assert.deepStrictEqual(ids,
+    ['q0', 'u1', 'q2', 'u3', 'q4', 'u5', 'q6', 'u7', 'q8', 'u9'],
+    'queries and updates stay interleaved as written');
 });
 
-test('38 · grouping updates together shortens the deck', () => {
-  // Interleaved in the input, the five updates could never group under the old
-  // adjacency rule. Sectioning makes them contiguous, so they share slides.
-  const p = plan('02-alternating-ten');
-  const grouped = p.slides.filter((s) => s.kind === 'grouped');
-  assert.ok(grouped.length > 0, 'expected updates to share slides once contiguous');
-  for (const g of grouped) assert.ok(g.blocks.length <= C.MAX_GROUPED_UPDATES);
-});
-
-test('39 · a deck of only updates still labels every slide and owes nothing', () => {
-  const p = plan('13-zero-flagged');
-  assert.strictEqual(p.meta.queryCount, 0);
-  assert.ok(!p.slides.some((s) => s.kind === 'contents'), 'nothing is owed, so no summary');
-  for (const s of p.slides) {
-    if (s.kind === 'item') assert.strictEqual(s.header.chip.text, 'Update');
-    if (s.kind === 'grouped') assert.strictEqual(s.chip.text, 'Update');
+test('38 · every item ends with a reply box, whatever it is', () => {
+  for (const name of Object.keys(fixtures)) {
+    const p = planSlides(fixtures[name]);
+    const byItem = new Map();
+    for (const s of p.slides.filter((x) => x.kind === 'item')) {
+      if (!byItem.has(s.itemId)) byItem.set(s.itemId, []);
+      byItem.get(s.itemId).push(s);
+    }
+    for (const [id, slides] of byItem) {
+      const boxes = slides.filter((s) => s.replyBox);
+      assert.strictEqual(boxes.length, 1, `${name}/${id}: exactly one reply box per item`);
+      assert.strictEqual(boxes[0], slides.at(-1), `${name}/${id}: and it is on the last slide`);
+      assert.strictEqual(boxes[0].replyBox.label, `Your response — ${boxes[0].number}`);
+    }
   }
 });
 
-test('40 · the summary threshold counts every item, not just the queries', () => {
-  const build = (q, u) => planSlides({
-    document: doc(),
-    items: [
-      ...Array.from({ length: q }, (_, i) => query(`q${i}`, `Question ${i + 1}`, 'Please confirm.')),
-      ...Array.from({ length: u }, (_, i) => update(`u${i}`, `Update ${i + 1}`, 'Progress note.')),
-    ],
-  });
-  const hasSummary = (p) => p.slides.some((s) => s.kind === 'contents');
+test('39 · an item with no images reserves the column; one with images does not', () => {
+  const bare = items(plan('24-no-body-no-images'))[0];
+  assert.strictEqual(bare.layout, 'IMAGE_PLACEHOLDER');
+  assert.ok(bare.placeholder, 'a sender can see where a picture would go');
 
-  assert.strictEqual(hasSummary(build(2, 0)), false, 'two items is too few to need a summary');
-  assert.strictEqual(hasSummary(build(1, 2)), true, 'one query plus two updates is three items');
-  assert.strictEqual(hasSummary(build(0, 5)), true, 'a deck of updates still gets a summary');
+  // The adaptive layout is untouched wherever images actually exist.
+  const withImage = items(plan('03-one-upright-image'))[0];
+  assert.strictEqual(withImage.layout, 'IMAGE_SIDE');
+  assert.strictEqual(withImage.placeholder, null);
+  assert.strictEqual(items(plan('04-one-wide-image'))[0].layout, 'IMAGE_STACKED');
+  assert.ok(items(plan('05-three-images')).some((s) => s.layout === 'IMAGE_GRID'));
 });
 
-test('41 · a summary with nothing owed does not ask for a query number', () => {
-  const p = plan('17-five-updates');
-  const sum = p.slides.find((s) => s.kind === 'contents');
-  assert.ok(sum, 'five updates is past the threshold');
-  assert.deepStrictEqual(sum.rows.filter((r) => r.type === 'section').map((r) => r.text), ['OTHER UPDATES']);
-  assert.deepStrictEqual(sum.tail, [], 'no queries, so no "reply quoting the query number"');
+test('40 · a continuation slide that ran out of images gets no placeholder', () => {
+  // The item has pictures, just not on this slide — offering to add one would
+  // tell the reader something untrue.
+  const p = plan('07-long-body-4-images');
+  for (const s of items(p).filter((x) => x.continued)) {
+    assert.strictEqual(s.placeholder, null, `p${s.page} must not offer an image slot`);
+  }
 });
 
-// ── Second review round: summary furniture and continuation ──
+test('41 · two numbered template slides close every deck', () => {
+  for (const name of Object.keys(fixtures)) {
+    const p = planSlides(fixtures[name]);
+    const t = templates(p);
+    assert.strictEqual(t.length, 2, `${name}: one single-image and one multi-image template`);
+    assert.deepStrictEqual(t.map((x) => x.variant), ['single', 'multi']);
+    assert.strictEqual(t[0].images.length, 1);
+    assert.strictEqual(t[1].images.length, 3);
+
+    // Numbered on from the last real item, so a copied template needs no renumbering.
+    const last = items(p).filter((s) => !s.continued).length;
+    assert.deepStrictEqual(t.map((x) => x.number), [last + 1, last + 2], `${name}: numbering continues`);
+    for (const x of t) assert.ok(x.replyBox, 'templates carry the same reply box as real slides');
+
+    assert.strictEqual(p.slides.at(-1).kind, 'template', 'and they sit at the very end');
+  }
+});
 
 test('42 · the summary carries the same footer as every other slide', () => {
   const p = plan('12-four-queries-two-updates');
@@ -506,21 +523,14 @@ test('43 · the summary heading sits level with the title on other slides', () =
     'anchored at HEADER_Y, not an inch lower at CONTENT_Y');
 });
 
-test('44 · a section label that follows a list gets room above it', () => {
-  const summary = plan('12-four-queries-two-updates').slides.find((s) => s.kind === 'contents');
-  const rows = summary.rows;
-  const updates = rows.findIndex((r) => r.type === 'section' && /OTHER UPDATES/.test(r.text));
-  assert.ok(updates > 0, 'expected an updates section after the queries');
-
-  const lastQuery = rows[updates - 1];
-  const gapBeforeSection = rows[updates].box.y - (lastQuery.box.y + lastQuery.box.h);
-  const entryGap = rows[updates + 2].box.y - (rows[updates + 1].box.y + rows[updates + 1].box.h);
-
-  assert.ok(gapBeforeSection > entryGap * 2,
-    `a section break (${gapBeforeSection.toFixed(2)}in) should read wider than a line break (${entryGap.toFixed(2)}in)`);
-
-  // The first section needs no lead — it sits directly under the heading.
-  assert.strictEqual(rows[0].lead, 0);
+test('44 · the summary list is one block, so Enter continues the numbering', () => {
+  // The whole point of the flat summary: separate boxes per row made it
+  // impossible for a sender to add a line (PLAN.md §5.14).
+  const c = plan('12-four-queries-two-updates').slides.find((x) => x.kind === 'contents');
+  assert.ok(c.list, 'a single list, not a box per entry');
+  assert.strictEqual(c.rows, undefined, 'the per-row model is gone');
+  assert.ok(c.list.indent > 0, 'room is left for the bullet PowerPoint draws');
+  assert.strictEqual(c.list.entries.length, 6);
 });
 
 test('45 · a slide that carries on says so at its foot; the last one does not', () => {

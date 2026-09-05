@@ -19,8 +19,7 @@ const FIELD_GAP  = 0.20;
 const BLOCK_GAP  = 0.28;
 const HEADING_GAP = 0.30;
 const ENTRY_GAP  = 0.14;
-const SECTION_GAP = 0.22;
-const SECTION_LEAD = 0.34;   // space above a section label that follows a list
+const SUMMARY_BULLET_INDENT = 0.32;   // room PowerPoint's own number takes
 
 /** ISO or loose date → "03 Sep 2026". UTC, so output never depends on the host. */
 function formatDate(value) {
@@ -58,7 +57,7 @@ function resolveTitle(item) {
   return (space > 20 ? cut.slice(0, space) : cut).replace(/[\s:;,.\-–—]+$/, '') || C.UNTITLED;
 }
 
-/** Normalise input and assign gapless query numbers over flagged items. */
+/** Normalise input and number every item sequentially, in input order. */
 function normalize(doc) {
   const warnings = [];
   const d = doc.document || {};
@@ -85,8 +84,10 @@ function normalize(doc) {
     };
   });
 
-  let n = 0;
-  for (const it of items) if (it.needs_response) it.queryNo = ++n;
+  // Every item is numbered, in the order the sender wrote it. needs_response is
+  // still carried — enrichment sets it and the grouped-queries-format branch
+  // needs it — but it no longer affects numbering, ordering, or layout.
+  items.forEach((it, i) => { it.number = i + 1; });
 
   return {
     document: {
@@ -100,8 +101,11 @@ function normalize(doc) {
       logo: d.logo || null,
     },
     items,
-    queryCount: n,
-    updateCount: items.length - n,
+    itemCount: items.length,
+    // Still counted for the notification email's summary line, though nothing
+    // in the layout distinguishes them any more.
+    queryCount: items.filter((i) => i.needs_response).length,
+    updateCount: items.filter((i) => !i.needs_response).length,
     warnings,
   };
 }
@@ -173,35 +177,41 @@ function planCover(n, showInstruction) {
     y += h + TITLE_GAP;
   }
 
-  // One free-text reference instead of separate part/PO fields — it carries a
-  // part number, a PO number, or a name, whichever the sender has.
-  const fields = [
-    ['Reference', d.reference_name],
-    ['Attention', d.addressee],
-  ].filter(([, v]) => v);
-
-  for (const [label, value] of fields) {
+  /**
+   * A cover field. The label ALWAYS renders, value or not — the cover is a
+   * template now, so an absent value shows a hairline rule to write on rather
+   * than vanishing. A rule reads as a form line, so nothing has to be deleted
+   * if it is left blank; a filled box would have to be (PLAN.md §5.14).
+   */
+  const field = (label, value) => {
     const labelH = heightOf(1, C.TYPE.coverLabel.size);
-    const vLines = wrap(value, textW, C.TYPE.coverValue.size);
-    const valueH = heightOf(vLines.length, C.TYPE.coverValue.size);
+    const size = C.TYPE.coverValue.size;
+    const filled = Boolean(value);
+    const vLines = filled ? wrap(value, textW, size) : [];
+    const valueH = filled ? heightOf(vLines.length, size) : heightOf(1, size);
+
     blocks.push({
       kind: 'field',
       label,
+      filled,
       lines: vLines,
       labelBox: { x: C.CONTENT_X, y, w: textW, h: labelH },
       valueBox: { x: C.CONTENT_X, y: y + labelH, w: textW, h: valueH },
+      // Sits on the value's baseline, so typed text lands on the line.
+      rule: filled ? null : { x: C.CONTENT_X, y: y + labelH + valueH, w: textW },
     });
     y += labelH + valueH + FIELD_GAP;
-  }
+  };
 
-  if (d.additional_details) {
-    // Rendered in full — the spec's 240-char truncation is dropped (PLAN.md §5.1).
-    const size = C.TYPE.coverValue.size;
-    const lines = wrap(d.additional_details, textW, size);
-    const h = heightOf(lines.length, size);
-    blocks.push({ kind: 'note', lines, size, box: { x: C.CONTENT_X, y: y + 0.06, w: textW, h } });
-    y += h + BLOCK_GAP;
-  }
+  field('Reference number', d.reference_name);
+  if (d.addressee) field('Attention', d.addressee);
+  field('Additional information', d.additional_details);
+
+  // Prepared by moves out of the footer and becomes a field like the others —
+  // it is information about the document, and at 9pt in the footer nobody read it.
+  const prepared = [d.created_by, d.created_at ? formatDate(d.created_at) : '']
+    .filter(Boolean).join('  ·  ');
+  field('Prepared by', prepared);
 
   let instruction = null;
   if (showInstruction) {
@@ -223,74 +233,45 @@ function planCover(n, showInstruction) {
     instruction,
     photo: hasPhoto ? { image: d.product_photo, zone: photoZone } : null,
     logo: logoBox(d.logo, C.COVER_LOGO_H, true),
-    footer: coverFooter(d, { hasLogo: false, showPreparedBy: true }),
+    footer: null,   // prepared-by now lives in the body; the logo carries the rest
   };
 }
 
-// ── Summary (§7.2, reworked) ─────────────────────────────────
+// ── Summary ──────────────────────────────────────────────────
 
 /**
- * The summary slide, grouped into sections.
+ * The summary slide: the deck's points, listed in order.
  *
- * The spec listed only queries here, on the grounds that naming updates dilutes
- * the "how many answers are owed" signal. In practice the opposite happened: a
- * client flicking through hit unnumbered slides that the summary never
- * mentioned, and had to infer the convention with nobody to ask. Both sections
- * are listed now, and the count moves into the QUERIES label so the signal
- * survives (PLAN.md §5.8).
+ * Rendered as ONE text box per slide with PowerPoint's own numbered bullets, so
+ * a sender can click into the list and press Enter to add a point — the number
+ * appears by itself. Separate boxes per row made that impossible, which was the
+ * single biggest obstacle to anyone adopting the deck as a template.
  *
- * Rows — section labels and entries alike — are laid out as one flat list, so
- * pagination stays the simple "fill until full, then start another slide".
+ * No "3 need a reply" count: it would go stale the moment a slide is added by
+ * hand, and a confidently wrong count is worse than none (PLAN.md §5.14).
+ *
+ * Pagination survives — a forty-item list still cannot overflow its box — and
+ * each continuation slide restarts PowerPoint's numbering at the right value.
  */
 function planSummary(n) {
   const entrySize = C.TYPE.contentsEntry.size;
-  const labelSize = C.TYPE.sectionLabel.size;
-  // Anchored at HEADER_Y, level with the title on every other slide. At
-  // CONTENT_Y the heading sat almost an inch lower than any other page's, which
-  // read as a mistake rather than as deliberate spacing.
   const area = { x: C.CONTENT_X, y: C.HEADER_Y, w: C.CONTENT_W, h: C.CONTENT_BOTTOM - C.HEADER_Y };
 
-  // `lead` is space above the label. The first section sits under the heading
-  // and needs none; a later one needs separating from the list it follows.
-  const label = (text, lead = 0) => ({
-    type: 'section', text, size: labelSize, lead,
-    lines: wrap(text, area.w, labelSize, true),
-    h: heightOf(1, labelSize) + SECTION_GAP + lead,
+  // The number is rendered by PowerPoint's bullet, so the text is the title
+  // alone. Width is discounted to leave room for the bullet's own indent.
+  const textW = area.w - SUMMARY_BULLET_INDENT;
+  const built = n.items.map((it) => {
+    const text = it.item_name ? `${it.item_name} — ${it.title}` : it.title;
+    const lines = wrap(text, textW, entrySize);
+    return { n: it.number, text, lines, h: heightOf(lines.length, entrySize) + ENTRY_GAP };
   });
-  const entry = (text, queryNo) => {
-    const lines = wrap(text, area.w, entrySize);   // wraps, never truncated
-    return { type: 'entry', n: queryNo || null, text, lines, size: entrySize,
-             h: heightOf(lines.length, entrySize) + ENTRY_GAP };
-  };
 
-  const queries = n.items.filter((i) => i.needs_response);
-  const updates = n.items.filter((i) => !i.needs_response);
-
-  const rows = [];
-  if (queries.length) {
-    rows.push(label(C.SECTION_QUERIES(queries.length)));
-    for (const it of queries) {
-      rows.push(entry(it.item_name
-        ? `Q${it.queryNo} · ${it.item_name} — ${it.title}`
-        : `Q${it.queryNo} · ${it.title}`, it.queryNo));
-    }
-  }
-  if (updates.length) {
-    rows.push(label(C.SECTION_UPDATES, rows.length ? SECTION_LEAD : 0));
-    for (const it of updates) {
-      rows.push(entry(it.item_name ? `· ${it.item_name} — ${it.title}` : `· ${it.title}`));
-    }
-  }
-
-  const tailLines = queries.length
-    ? [{ kind: 'instruction', text: C.REPLY_INSTRUCTION }]
-    : [];
-  const tailH = tailLines.length ? heightOf(1, C.TYPE.body.size) + ENTRY_GAP + 0.18 : 0;
+  const tailH = heightOf(1, C.TYPE.body.size) + ENTRY_GAP + 0.18;
 
   const slides = [];
   let idx = 0;
 
-  while (idx < rows.length) {
+  while (idx < built.length) {
     const isFirst = slides.length === 0;
     let cursor = area.y;
     let headingBlock = null;
@@ -307,50 +288,48 @@ function planSummary(n) {
 
     // Try to close the list here, leaving room for the reply instruction.
     let take = 0, probe = cursor;
-    while (idx + take < rows.length && take < C.CONTENTS_MAX_ENTRIES) {
-      if (probe + rows[idx + take].h > bottom - tailH) break;
-      probe += rows[idx + take].h; take += 1;
+    while (idx + take < built.length && take < C.CONTENTS_MAX_ENTRIES) {
+      if (probe + built[idx + take].h > bottom - tailH) break;
+      probe += built[idx + take].h; take += 1;
     }
 
-    if (idx + take < rows.length) {
-      // Not closing here — reclaim the tail's space for more rows.
+    if (idx + take < built.length) {
+      // Not closing here — reclaim the tail's space for more entries.
       take = 0; probe = cursor;
-      while (idx + take < rows.length && take < C.CONTENTS_MAX_ENTRIES) {
-        if (probe + rows[idx + take].h > bottom) break;
-        probe += rows[idx + take].h; take += 1;
+      while (idx + take < built.length && take < C.CONTENTS_MAX_ENTRIES) {
+        if (probe + built[idx + take].h > bottom) break;
+        probe += built[idx + take].h; take += 1;
       }
       if (take === 0) take = 1;   // always make progress
     }
 
-    // Never strand a section label at the foot of a slide.
-    if (take > 1 && idx + take < rows.length && rows[idx + take - 1].type === 'section') take -= 1;
+    const entries = built.slice(idx, idx + take);
+    const listH = entries.reduce((a, e) => a + e.h, 0);
 
-    const placed = [];
-    for (let k = 0; k < take; k++) {
-      const r = rows[idx + k];
-      const gap = r.type === 'section' ? SECTION_GAP : ENTRY_GAP;
-      const lead = r.lead || 0;
-      placed.push({ ...r, box: { x: area.x, y: cursor + lead, w: area.w, h: r.h - gap - lead } });
-      cursor += r.h;
-    }
+    // One box for the whole slice. numberStartAt keeps the count running across
+    // paginated summary slides.
+    const list = {
+      startAt: entries[0].n,
+      entries: entries.map((e) => ({ n: e.n, text: e.text, lines: e.lines })),
+      size: entrySize,
+      indent: SUMMARY_BULLET_INDENT,
+      box: { x: area.x, y: cursor, w: area.w, h: listH },
+    };
+    cursor += listH;
     idx += take;
 
     let tail = null;
-    if (idx >= rows.length) {
-      tail = [];
-      let ty = cursor + 0.18;
-      for (const t of tailLines) {
-        const size = C.TYPE.body.size;
-        const h = heightOf(1, size);
-        tail.push({ ...t, size, box: { x: area.x, y: ty, w: area.w, h } });
-        ty += h + ENTRY_GAP;
-      }
+    if (idx >= built.length) {
+      const size = C.TYPE.body.size;
+      tail = [{
+        kind: 'instruction', text: C.REPLY_INSTRUCTION, size,
+        box: { x: area.x, y: cursor + 0.18, w: area.w, h: heightOf(1, size) },
+      }];
     }
 
     const summaryLogo = logoBox(n.document.logo, C.FOOTER_LOGO_H, false);
-    slides.push({ kind: 'contents', heading: headingBlock, rows: placed, tail,
-      logo: summaryLogo,
-      footer: itemFooter(n.document, Boolean(summaryLogo)) });
+    slides.push({ kind: 'contents', heading: headingBlock, list, tail,
+      logo: summaryLogo, footer: itemFooter(n.document, Boolean(summaryLogo)) });
   }
 
   return slides;
@@ -360,14 +339,13 @@ function planSummary(n) {
 
 function buildItemSlide(item, attempt, { continued, isLast }) {
   const header = planHeader({
-    queryNo: item.queryNo || null, title: item.title, continued, itemName: item.item_name,
+    number: item.number, title: item.title, continued, itemName: item.item_name,
   });
-  const flagged = item.needs_response;
 
   return {
     kind: 'item',
     itemId: item.id,
-    queryNo: item.queryNo || null,
+    number: item.number,
     itemName: item.item_name,
     title: item.title,
     continued,
@@ -375,6 +353,7 @@ function buildItemSlide(item, attempt, { continued, isLast }) {
     layout: attempt.layout,
     body: attempt.body,
     images: attempt.images,
+    placeholder: attempt.placeholder || null,
     // Told at the foot of the slide, not only in the next slide's header — a
     // reader needs to know there is more before they turn the page, not after.
     continuesNote: isLast ? null : {
@@ -388,9 +367,11 @@ function buildItemSlide(item, attempt, { continued, isLast }) {
         h: C.CONTINUES_H,
       },
     },
-    replyBox: flagged && isLast
+    // On every item, not only those flagged as needing a response. Uniformity is
+    // what lets a sender duplicate any slide and have it look right (PLAN.md §5.14).
+    replyBox: isLast
       ? {
-          label: C.REPLY_LABEL(item.queryNo),
+          label: C.REPLY_LABEL(item.number),
           box: { x: C.CONTENT_X, y: C.REPLY_Y, w: C.CONTENT_W, h: C.REPLY_H },
           labelBox: {
             x: C.CONTENT_X + C.REPLY_INSET, y: C.REPLY_Y + C.REPLY_INSET,
@@ -423,11 +404,12 @@ function planItem(item, warnings) {
     }
 
     const headerH = planHeader({
-      queryNo: item.queryNo || null, title: item.title, continued, itemName: item.item_name,
+      number: item.number, title: item.title, continued, itemName: item.item_name,
     }).height;
-    const flagged = item.needs_response;
+    // Reserve the image column only when the item has no pictures at all.
+    const wantPlaceholder = item.images.length === 0;
 
-    const trial = layoutItemSlide({ body, images, headerH, hasReply: flagged });
+    const trial = layoutItemSlide({ body, images, headerH, hasReply: true, wantPlaceholder });
     if (trial.bodyRemainder === '' && trial.imagesUsed === images.length) {
       slides.push(buildItemSlide(item, trial, { continued, isLast: true }));
       break;
@@ -435,13 +417,13 @@ function planItem(item, warnings) {
 
     // Not the last slide, so it carries on overleaf and must say so — which
     // costs a strip at the foot, hence the re-layout rather than reusing trial.
-    let chosen = layoutItemSlide({ body, images, headerH, hasReply: false, continues: true });
+    let chosen = layoutItemSlide({ body, images, headerH, hasReply: false, continues: true, wantPlaceholder });
 
     // If the full-height layout would swallow everything, there'd be nothing
     // left for the reply box's own slide. Keep a split instead so the remainder
     // carries the reply box on a final slide.
-    if (flagged && chosen.bodyRemainder === '' && chosen.imagesUsed === images.length) {
-      chosen = layoutItemSlide({ body, images, headerH, hasReply: true, continues: true });
+    if (chosen.bodyRemainder === '' && chosen.imagesUsed === images.length) {
+      chosen = trial;
     }
 
     slides.push(buildItemSlide(item, chosen, { continued, isLast: false }));
@@ -461,86 +443,83 @@ function planItem(item, warnings) {
   return slides;
 }
 
-/** §12 — consecutive text-only updates may share a slide. */
-function tryGroup(group, doc) {
-  const area = { x: C.CONTENT_X, y: C.CONTENT_Y, w: C.CONTENT_W, h: C.CONTENT_BOTTOM - C.CONTENT_Y };
-  const blocks = [];
-  let y = area.y;
-
-  for (const it of group) {
-    const tSize = C.TYPE.groupedTitle.size;
-    const tLines = wrap(it.item_name ? `${it.item_name} — ${it.title}` : it.title, area.w, tSize, true);
-    const tH = heightOf(tLines.length, tSize);
-    const bSize = C.TYPE.body.size;
-    const bLines = it.body ? wrap(it.body, area.w, bSize) : [];
-    const bH = heightOf(bLines.length, bSize);
-
-    blocks.push({
-      itemId: it.id,
-      itemName: it.item_name,
-      title: { text: it.title, lines: tLines, size: tSize, box: { x: area.x, y, w: area.w, h: tH } },
-      body: bLines.length
-        ? { lines: bLines, size: bSize, box: { x: area.x, y: y + tH + 0.08, w: area.w, h: bH } }
-        : null,
-    });
-    y += tH + (bH ? bH + 0.08 : 0) + C.GUTTER;
-  }
-
-  const used = y - area.y - C.GUTTER;
-  if (used > area.h * C.FILL_TARGET) return null;
-
-  return {
-    kind: 'grouped',
-    chip: {
-      text: C.UPDATE_CHIP_LABEL, tone: 'update', size: C.CHIP.update.size,
-      box: { x: C.CONTENT_X, y: C.HEADER_Y, w: 0.87, h: C.HEADER_H },
-    },
-    blocks,
-    logo: logoBox(doc.logo, C.FOOTER_LOGO_H, false),
-  };
-}
-
 /**
- * Item slides, grouped into sections: everything owing an answer first, then
- * the rest. Order within each section is the sender's own.
+ * Item slides, in the order the sender wrote them.
  *
- * This deliberately overrides the spec's "item order is preserved absolutely".
- * That rule existed to protect numbering clarity, but in a real deck it worked
- * against it — a client hit numbered and unnumbered slides in alternation and
- * had to infer the convention unaided. Grouping serves the same goal better
- * (PLAN.md §5.8). A bonus: updates become contiguous, so §12 grouping actually
- * fires and text-only updates share slides.
+ * No partitioning, no reordering, no grouping. Queries and updates are one
+ * numbered stream now, so a slide inserted by hand lands where it was put and
+ * carries the next number — which section-ordering and grouping both prevented
+ * (PLAN.md §5.14).
  */
 function planItemSlides(n, warnings) {
-  const ordered = [
-    ...n.items.filter((it) => it.needs_response),
-    ...n.items.filter((it) => !it.needs_response),
-  ];
-
   const slides = [];
-  let i = 0;
-
-  while (i < ordered.length) {
-    const it = ordered[i];
-    const groupable = (x) => !x.needs_response && x.images.length === 0;
-
-    if (groupable(it)) {
-      let span = 1;
-      while (span < C.MAX_GROUPED_UPDATES && i + span < ordered.length && groupable(ordered[i + span])) span++;
-
-      let placed = false;
-      for (let size = span; size >= 2 && !placed; size--) {
-        const g = tryGroup(ordered.slice(i, i + size), n.document);
-        if (g) { slides.push(g); i += size; placed = true; }
-      }
-      if (placed) continue;
-    }
-
-    slides.push(...planItem(it, warnings));
-    i += 1;
-  }
-
+  for (const item of n.items) slides.push(...planItem(item, warnings));
   return slides;
+}
+
+// ── Template slides ──────────────────────────────────────────
+
+/**
+ * Two blank slides appended for the sender to copy.
+ *
+ * Their boxes use the same geometry as generated slides, so a copied template
+ * filled in by hand is indistinguishable from one the generator produced. The
+ * renderer wires these to real PowerPoint placeholders, which show a
+ * "click to add" prompt while editing and print nothing if left untouched —
+ * so shipping them costs nothing when a sender ignores them.
+ */
+function planTemplates(n, startNumber) {
+  const headerH = C.HEADER_H;
+  const c = contentBox(headerH, true);
+  const colW = c.w - C.GUTTER;
+
+  const chrome = (number) => {
+    const header = planHeader({ number, title: '', continued: false });
+    return {
+      kind: 'template',
+      number,
+      header,
+      replyBox: {
+        label: C.REPLY_LABEL(number),
+        box: { x: C.CONTENT_X, y: C.REPLY_Y, w: C.CONTENT_W, h: C.REPLY_H },
+        labelBox: {
+          x: C.CONTENT_X + C.REPLY_INSET, y: C.REPLY_Y + C.REPLY_INSET,
+          w: C.CONTENT_W - C.REPLY_INSET * 2, h: heightOf(1, C.TYPE.replyLabel.size),
+        },
+      },
+      logo: logoBox(n.document.logo, C.FOOTER_LOGO_H, false),
+    };
+  };
+
+  // A — one picture beside the text, matching IMAGE_PLACEHOLDER.
+  const imgW = colW * C.SIDE_IMAGE_FRACTION;
+  const single = {
+    ...chrome(startNumber),
+    variant: 'single',
+    titleBox: { ...c, y: C.HEADER_Y, h: C.HEADER_H },
+    images: [{ x: c.x, y: c.y, w: imgW, h: c.h }],
+    bodyBox: { x: c.x + imgW + C.GUTTER, y: c.y, w: colW - imgW, h: c.h },
+  };
+
+  // B — three pictures in the grid, body above, matching IMAGE_GRID.
+  const bodyH = heightOf(C.GRID_BODY_MAX_LINES, C.TYPE.body.size);
+  const gridY = c.y + bodyH + C.GUTTER;
+  const gridH = c.h - (gridY - c.y);
+  const cellW = (c.w - C.GUTTER) / 2;
+  const rowH = (gridH - C.GUTTER) / 2;
+  const multi = {
+    ...chrome(startNumber + 1),
+    variant: 'multi',
+    titleBox: { ...c, y: C.HEADER_Y, h: C.HEADER_H },
+    bodyBox: { x: c.x, y: c.y, w: c.w, h: bodyH },
+    images: [
+      { x: c.x, y: gridY, w: cellW, h: rowH },
+      { x: c.x + cellW + C.GUTTER, y: gridY, w: cellW, h: rowH },
+      { x: c.x + (c.w - cellW) / 2, y: gridY + rowH + C.GUTTER, w: cellW, h: rowH },
+    ],
+  };
+
+  return [single, multi];
 }
 
 // ── Entry point ──────────────────────────────────────────────
@@ -555,11 +534,12 @@ function planSlides(doc) {
   const slides = [planCover(n, instructionOnCover)];
   if (showContents) slides.push(...planSummary(n));
   slides.push(...planItemSlides(n, warnings));
+  slides.push(...planTemplates(n, n.items.length + 1));
 
   // Page numbers and footers, once the sequence is final.
   slides.forEach((s, i) => {
     s.page = i + 1;
-    if (s.kind === 'item' || s.kind === 'grouped') {
+    if (s.kind === 'item' || s.kind === 'template') {
       s.logo = s.logo || logoBox(n.document.logo, C.FOOTER_LOGO_H, false);
       s.footer = itemFooter(n.document, Boolean(s.logo));
     }
@@ -569,6 +549,9 @@ function planSlides(doc) {
   return {
     meta: {
       totalSlides: slides.length,
+      itemCount: n.itemCount,
+      // Still surfaced for the notification email, though the deck itself no
+      // longer distinguishes the two.
       queryCount: n.queryCount,
       updateCount: n.updateCount,
       hasContents: showContents,
@@ -579,4 +562,4 @@ function planSlides(doc) {
   };
 }
 
-module.exports = { planSlides, normalize, formatDate, resolveTitle };
+module.exports = { planSlides, normalize, formatDate, resolveTitle, planTemplates };

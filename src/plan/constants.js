@@ -32,9 +32,12 @@ const CONTENT_Y_2LINE  = 1.95;     // top of content when the header wrapped
 const CONTENT_BOTTOM   = 6.95;     // bottom of the content area on a plain slide
 
 // ── Reply box ────────────────────────────────────────────────
-const REPLY_Y   = 5.85;
-const REPLY_H   = 1.10;
-const REPLY_GAP = 0.20;            // clearance between content and the reply box
+// Now on EVERY slide, so its cost is paid everywhere rather than only on
+// queries. Shrunk from 1.10/0.20 to claw back 0.30in of content height per
+// slide and partly offset that (PLAN.md §5.14).
+const REPLY_H   = 0.85;
+const REPLY_GAP = 0.15;            // clearance between content and the reply box
+const REPLY_Y   = 6.10;            // bottom lands on CONTENT_BOTTOM
 const REPLY_INSET = 0.12;          // label inset inside the box
 
 // ── Footer ───────────────────────────────────────────────────
@@ -85,7 +88,19 @@ const GRID_MAX_CELLS = 4;
 // updates got no summary at all, even though the summary now names updates too.
 const INCLUDE_SUMMARY_MIN_ITEMS = 3;
 const CONTENTS_MAX_ENTRIES         = 12;  // then paginate — never trim (PLAN.md §5.1)
-const MAX_GROUPED_UPDATES          = 3;
+
+// ── Image placeholder ────────────────────────────────────────
+// A slide with no image still reserves the image column and outlines it, so a
+// sender can see where to drop one. Outline only, no fill: if it is never
+// filled it reads as a reserved frame rather than an unfinished box.
+const PLACEHOLDER_DASH = 'dash';
+const PLACEHOLDER_LABEL = 'Add image';
+
+// ── Template slides (appended for the sender to copy) ────────
+const TEMPLATE_MASTER = 'TEMPLATE_SLIDE';
+const TEMPLATE_TITLE_PROMPT = 'Click to add title';
+const TEMPLATE_BODY_PROMPT  = 'Click to add text';
+const TEMPLATE_IMAGE_PROMPT = 'Click the icon to add a picture';
 
 // ── Text fitting (PLAN.md §4) ────────────────────────────────
 // We plan to fill this fraction of a box, then break to the next slide. Being
@@ -104,15 +119,16 @@ const FONT = 'Arial';              // PLAN.md T3 — do not change without readi
 
 const TYPE = {
   eyebrow:       { size: 11, bold: false },   // item_name above the slide header
-  sectionLabel:  { size: 12, bold: true  },   // "QUERIES — 3 need your response"
   coverTitle:    { size: 32, bold: true  },
-  coverValue:    { size: 14, bold: false },
-  coverLabel:    { size: 10, bold: false },
+  // Cover field labels and values sized up together, keeping the cover's own
+  // hierarchy intact: the title still dominates, the fields now read as a form
+  // rather than as fine print.
+  coverValue:    { size: 18, bold: false },
+  coverLabel:    { size: 12, bold: false },
   contentsHead:  { size: 24, bold: true  },
   contentsEntry: { size: 15, bold: false },
   slideHeader:   { size: 22, bold: true  },
   body:          { size: 16, bold: false },
-  groupedTitle:  { size: 16, bold: true  },
   caption:       { size: 10, bold: false },
   replyLabel:    { size: 10, bold: false },
   footer:        { size:  9, bold: false },
@@ -136,24 +152,16 @@ const COLOR = {
 
 const HAIRLINE = 0.75;             // pt, for image frames and the reply box
 
-// Every item slide carries a chip so none is ever ambiguous: a query shows its
-// number loudly, an update says so quietly. The query number is the thing that
-// matters, so the update chip is deliberately smaller and greyer.
-const CHIP = {
-  query:  { text: COLOR.accent, bg: COLOR.accentBg, size: 22 },
-  update: { text: COLOR.muted,  bg: COLOR.surface,  size: 12 },
-};
-const UPDATE_CHIP_LABEL = 'Update';
+// One chip, one look. Queries and updates are no longer distinguished — every
+// item is a numbered point, so a slide the sender adds by hand matches the
+// generated ones exactly (PLAN.md §5.14).
+const CHIP = { text: COLOR.accent, bg: COLOR.accentBg, size: 22 };
 
 // ── Copy ─────────────────────────────────────────────────────
-const REPLY_INSTRUCTION = 'Please reply quoting the query number.';
+const REPLY_INSTRUCTION = 'Please reply quoting the point number.';
 
-// The summary slide groups the deck: everything owing an answer, then the rest.
 const SUMMARY_HEADING = 'Summary';
-const SECTION_QUERIES = (n) =>
-  (n === 1 ? 'QUERIES — 1 needs your response' : `QUERIES — ${n} need your response`);
-const SECTION_UPDATES = 'OTHER UPDATES';
-const REPLY_LABEL       = (n) => `Your response — Q${n}`;
+const REPLY_LABEL       = (n) => `Your response — ${n}`;
 const UNTITLED          = 'Untitled';
 const TITLE_FALLBACK_CHARS = 60;   // first N chars of body when no title exists
 
@@ -168,10 +176,12 @@ module.exports = {
   IMAGE_ZONE_FRACTION, IMAGE_ZONE_MAX, SIDE_IMAGE_FRACTION, SIDE_PAIR_IMAGE_FRACTION,
   MIN_RENDER_DPI,
   GRID_BODY_MAX_LINES, GRID_MAX_CELLS,
-  INCLUDE_SUMMARY_MIN_ITEMS, CONTENTS_MAX_ENTRIES, MAX_GROUPED_UPDATES,
+  INCLUDE_SUMMARY_MIN_ITEMS, CONTENTS_MAX_ENTRIES,
+  PLACEHOLDER_DASH, PLACEHOLDER_LABEL,
+  TEMPLATE_MASTER, TEMPLATE_TITLE_PROMPT, TEMPLATE_BODY_PROMPT, TEMPLATE_IMAGE_PROMPT,
   FILL_TARGET, HARD_WRAP, LINE_HEIGHT,
   FONT, TYPE, BODY_SIZE_MAX, BODY_SIZE_MIN, BODY_SIZE_STEP,
-  COLOR, HAIRLINE, CHIP, UPDATE_CHIP_LABEL,
-  REPLY_INSTRUCTION, SUMMARY_HEADING, SECTION_QUERIES, SECTION_UPDATES,
+  COLOR, HAIRLINE, CHIP,
+  REPLY_INSTRUCTION, SUMMARY_HEADING,
   REPLY_LABEL, UNTITLED, TITLE_FALLBACK_CHARS,
 };

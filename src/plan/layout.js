@@ -40,16 +40,15 @@ function fitBox(imgW, imgH, boxW, boxH) {
  * allowed, and the content area moves down to make room. The Q-number is never
  * shrunk or wrapped.
  */
-function planHeader({ queryNo, title, continued, itemName }) {
+function planHeader({ number, title, continued, itemName }) {
   const text = `${title}${continued ? ' (continued)' : ''}`;
   const baseSize = C.TYPE.slideHeader.size;
 
-  // Every item slide is labelled. A query shows its number; an update says so.
-  // Without this an unnumbered slide reads as an oversight to a client who has
-  // never seen the format and has nobody to ask.
-  const tone = queryNo ? 'query' : 'update';
-  const chipText = queryNo ? `Q${queryNo}` : C.UPDATE_CHIP_LABEL;
-  const chipSize = C.CHIP[tone].size;
+  // One chip, one look, for every item. Queries and updates are no longer
+  // distinguished, so a slide the sender adds by hand is indistinguishable
+  // from a generated one — which is the whole point of the flat format.
+  const chipText = String(number);
+  const chipSize = C.CHIP.size;
 
   // item_name sits above the header as a muted line. One document often covers
   // several SKUs, so the reader needs to know which part a query is about
@@ -82,7 +81,7 @@ function planHeader({ queryNo, title, continued, itemName }) {
   return {
     eyebrow,
     chip: {
-      text: chipText, tone, size: chipSize,
+      text: chipText, size: chipSize,
       box: { x: C.CONTENT_X, y: topY, w: chipW, h: C.HEADER_H },
     },
     title: { text, lines, size, box: { x: titleX, y: topY, w: titleW, h: titleH } },
@@ -154,11 +153,21 @@ function tryLayout(layoutName, images, body, size, c) {
   const hasBody = Boolean(body && body.trim());
   const placed = [];
   let bodyBox = null;
+  let placeholder = null;
   let bodySizedToText = false;
   let cellW = c.w;   // width of the cell each image is laid into
 
   if (layoutName === 'TEXT_ONLY') {
     bodyBox = { ...c };
+
+  } else if (layoutName === 'IMAGE_PLACEHOLDER') {
+    // No image was supplied, so reserve the column one would occupy and outline
+    // it. Same geometry as IMAGE_SIDE, so a sender who drops a picture in gets
+    // the layout the generator would have produced anyway.
+    const colW = c.w - C.GUTTER;
+    const imgW = colW * C.SIDE_IMAGE_FRACTION;
+    placeholder = { box: { x: c.x, y: c.y, w: imgW, h: c.h } };
+    bodyBox = { x: c.x + imgW + C.GUTTER, y: c.y, w: colW - imgW, h: c.h };
 
   } else if (layoutName === 'IMAGE_SIDE' || layoutName === 'IMAGE_SIDE_PAIR') {
     const colW = c.w - C.GUTTER;
@@ -258,6 +267,7 @@ function tryLayout(layoutName, images, body, size, c) {
   return {
     layout: layoutName,
     images: placed,
+    placeholder,
     body: hasBody ? { lines: fitted, size, box: bodyBox } : null,
     bodyRemainder: remainder,
   };
@@ -271,19 +281,23 @@ function tryLayout(layoutName, images, body, size, c) {
  * remain, so a query always has visual context on its own slide (spec §11).
  * Whatever does not fit is returned as a remainder, never dropped.
  */
-function layoutItemSlide({ body, images, headerH, hasReply, continues = false }) {
+function layoutItemSlide({ body, images, headerH, hasReply, continues = false, wantPlaceholder = false }) {
   const c = contentBox(headerH, hasReply, continues);
   const hasBody = Boolean(body && body.trim());
   const sizes = [];
   for (let s = C.BODY_SIZE_MAX; s >= C.BODY_SIZE_MIN; s -= C.BODY_SIZE_STEP) sizes.push(s);
 
   if (images.length === 0) {
+    // wantPlaceholder is set only when the ITEM has no images at all. A
+    // continuation slide that has merely run out of them gets plain text — the
+    // pictures are on an earlier slide, so offering to add one would mislead.
+    const name = wantPlaceholder ? 'IMAGE_PLACEHOLDER' : 'TEXT_ONLY';
     for (const size of sizes) {
-      const att = tryLayout('TEXT_ONLY', [], body, size, c);
+      const att = tryLayout(name, [], body, size, c);
       if (att && att.bodyRemainder === '') return { ...att, imagesUsed: 0, content: c };
     }
-    const att = tryLayout('TEXT_ONLY', [], body, C.BODY_SIZE_MIN, c)
-      || { layout: 'TEXT_ONLY', images: [], body: null, bodyRemainder: '' };
+    const att = tryLayout(name, [], body, C.BODY_SIZE_MIN, c)
+      || { layout: name, images: [], placeholder: null, body: null, bodyRemainder: '' };
     return { ...att, imagesUsed: 0, content: c };
   }
 

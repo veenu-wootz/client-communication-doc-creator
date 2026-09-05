@@ -80,7 +80,7 @@ async function build(body) {
 
   const buffer = await renderPptx(plan);
   const project = parsed.document.project_name || parsed.document.report_title;
-  const filename = `Queries - ${safe(project)} - ${istStamp()}.pptx`;
+  const filename = `Queries - ${safe(project)} - ${istStamp()}.pptx`;   // filename wording is the sender's convention, kept as asked
 
   return { parsed, plan, buffer, filename };
 }
@@ -98,7 +98,7 @@ app.post('/generate', async (req, res) => {
   try {
     console.log('\n━━━━━━ /generate ━━━━━━');
     const { parsed, plan, buffer, filename } = await build(req.body);
-    console.log(`  planned ${plan.meta.totalSlides} slides — ${plan.meta.queryCount} queries, ${plan.meta.updateCount} updates`);
+    console.log(`  planned ${plan.meta.totalSlides} slides — ${plan.meta.itemCount} points`);
     console.log(`  rendered ${(buffer.length / 1024).toFixed(0)} KB`);
 
     // Optional, in order. Each one skipping is normal, not an error.
@@ -135,7 +135,7 @@ app.post('/preview', async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
     res.setHeader('X-Slide-Count', String(plan.meta.totalSlides));
-    res.setHeader('X-Query-Count', String(plan.meta.queryCount));
+    res.setHeader('X-Item-Count', String(plan.meta.itemCount));
     res.send(buffer);
   } catch (err) {
     console.error('✗ preview failed:', err);

@@ -7,7 +7,7 @@ OPEN is not yet decided.
 Related: [`docs/query-doc-format-spec.md`](docs/query-doc-format-spec.md) is the format specification. Where this file and the
 spec disagree, **this file wins** — the deviations are listed in §5 with reasons.
 
-Last updated: 2026-09-04 · built through M5, plus two review rounds against real content; Glide endpoint unwired pending credentials
+Last updated: 2026-09-05 · built through M5, plus two review rounds against real content; Glide endpoint unwired pending credentials
 
 ---
 
@@ -388,7 +388,47 @@ three-letter list `formatDate` uses, so the filename and the deck's own footer
 can't disagree. `en-GB` renders September as "Sept", which is why the month is
 mapped explicitly rather than taken from the locale.
 
-### 5.14 Known consequence, not a bug
+### 5.14 Flat format — from finished document to adoptable template (2026-09-05)
+
+The generator was correct but hard to *adopt*. A sender who wanted to add a slide
+had to renumber `Q1..Qn` by hand, could not press Enter in the summary because
+every entry was its own text box, and had no way to match the generated styling.
+The segregated format was excellent for a document nobody touches.
+
+**What changed, and why each.**
+
+| Change | Reason |
+|---|---|
+| One sequential stream `1..N`, input order, no sections | Attributability never needed the split — "3: R4 governs" is as unambiguous as "Q3". Sections meant a hand-inserted slide landed in the wrong place. |
+| Summary is **one text box with `bullet: {type:'number'}`** | The single biggest adoption blocker. Real PowerPoint auto-numbering: Enter adds the next point. Pagination is kept, with `numberStartAt` continuing the count across slides. |
+| No "3 need a reply" count | It goes stale the moment a slide is added by hand, and a confidently wrong count is worse than none. |
+| Reply box on **every** item | Uniformity: any slide can be duplicated and still look right. |
+| Grouping removed | Same reason — every item gets its own slide so they are interchangeable. |
+| Image placeholder when an item has no picture | Shows where one goes. Only when the ITEM has none: a continuation slide that merely ran out would be telling the reader something untrue. |
+| Two numbered template slides appended | Built on a slide master with **native placeholders**, which prompt while editing and print nothing if untouched — safe to ship unused. |
+| Cover is a template | Field labels always render; an empty value gets a hairline rule to write on rather than vanishing. A rule needs no deleting; a filled box would. |
+| Prepared-by moved out of the footer into a cover field | At 9pt in the footer nobody read it. |
+| `coverLabel 10 → 12`, `coverValue 14 → 18` | The cover reads as a form, not fine print. Title stays 32 so the hierarchy holds. |
+
+**Costs accepted knowingly.** Decks are longer — a reply box everywhere costs
+content height on every slide, and no grouping means five updates take five
+slides. `REPLY_H` dropped `1.10 → 0.85` and `REPLY_GAP` `0.20 → 0.15` to return
+0.30in per slide, which offsets part of it. And an unused per-slide image
+placeholder *does* print, unlike the template ones: it has to be drawn by the
+planner to follow the adaptive layout, and native placeholders live at fixed
+positions on a master. It is outline-only in the border colour to keep that quiet.
+
+**What did not change: the adaptive layout.** `selectLayout`, the overflow
+cascade, the aspect rules and the grid all behave exactly as before wherever
+images exist. Only the no-image case was given a reserved column.
+
+`needs_response` is still carried — enrichment sets it and the
+`grouped-queries-format` branch needs it — but nothing in the layout reads it.
+
+**The previous format is preserved** on branch `grouped-queries-format` in the
+personal repo, for the eventual switch back once the format is established.
+
+### 5.15 Known consequence, not a bug
 
 A long body pushes an item across several slides — 900 words with four images plans to five
 item slides, one image each. That is the no-truncation rule working as intended: the
@@ -451,7 +491,7 @@ engine is the only honest way to verify what PowerPoint will do.
 
 ## 9. Status
 
-Built and passing 82 tests: the planner and its geometry, the rendered OOXML, and the
+Built and passing 83 tests: the planner and its geometry, the rendered OOXML, and the
 enrichment fallback chain. `npm run sample` renders 21 fixtures to 114 slides.
 
 The whole pipeline runs with **no credentials at all** — no LLM key, no SMTP, no S3, no

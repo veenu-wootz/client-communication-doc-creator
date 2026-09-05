@@ -55,18 +55,37 @@ function imageSource(img) {
   return null;
 }
 
-/** The header chip: a loud query number, or a quiet "Update". */
+/** The header chip — the item's number, identical on every slide. */
 function drawChip(slide, pres, chip) {
   if (!chip) return;
-  const tone = C.CHIP[chip.tone] || C.CHIP.query;
   slide.addText(chip.text, {
     x: chip.box.x, y: chip.box.y, w: chip.box.w, h: chip.box.h,
     shape: pres.ShapeType.roundRect, rectRadius: CHIP_RADIUS,
-    fill: { color: tone.bg },
-    fontFace: C.FONT, fontSize: chip.size || tone.size, bold: true,
-    color: tone.text, align: 'center', valign: 'middle',
+    fill: { color: C.CHIP.bg },
+    fontFace: C.FONT, fontSize: chip.size || C.CHIP.size, bold: true,
+    color: C.CHIP.text, align: 'center', valign: 'middle',
     margin: 0, isTextBox: true, autoFit: false, shrinkText: false,
   });
+}
+
+/**
+ * The reserved image column on a slide that has no picture.
+ *
+ * Outline only, no fill: if the sender never drops an image in, this reads as a
+ * deliberately reserved frame rather than an unfinished box. Drawn rather than a
+ * native PowerPoint placeholder because its position is computed per slide, and
+ * native placeholders live at fixed positions on a master (PLAN.md §5.14).
+ */
+function drawImagePlaceholder(slide, pres, ph) {
+  slide.addShape(pres.ShapeType.rect, {
+    x: ph.box.x, y: ph.box.y, w: ph.box.w, h: ph.box.h,
+    fill: { type: 'none' },
+    line: { color: C.COLOR.border, width: C.HAIRLINE, dashType: C.PLACEHOLDER_DASH },
+  });
+  slide.addText(C.PLACEHOLDER_LABEL, textOpts(
+    { x: ph.box.x, y: ph.box.y + ph.box.h / 2 - 0.14, w: ph.box.w, h: 0.28 },
+    { size: C.TYPE.caption.size, color: C.COLOR.muted, align: 'center' },
+  ));
 }
 
 /** A missing or unreadable image: a filled rectangle naming the file. §13 */
@@ -136,7 +155,17 @@ function renderCover(pres, slide, s) {
       slide.addText(b.label, textOpts(b.labelBox, {
         size: C.TYPE.coverLabel.size, color: C.COLOR.muted,
       }));
-      slide.addText(toText(b.lines), textOpts(b.valueBox, { size: C.TYPE.coverValue.size }));
+      // An empty field still gets its box, so a click lands in the right place,
+      // and a hairline rule beneath it to write on. A rule reads as a form line
+      // and needs no deleting if it is left blank.
+      slide.addText(b.filled ? toText(b.lines) : '',
+        textOpts(b.valueBox, { size: C.TYPE.coverValue.size }));
+      if (b.rule) {
+        slide.addShape(pres.ShapeType.line, {
+          x: b.rule.x, y: b.rule.y, w: b.rule.w, h: 0,
+          line: { color: C.COLOR.border, width: C.HAIRLINE },
+        });
+      }
     } else if (b.kind === 'note') {
       slide.addText(toText(b.lines), textOpts(b.box, { size: b.size }));
     }
@@ -169,12 +198,17 @@ function renderContents(pres, slide, s) {
   if (s.heading) {
     slide.addText(toText(s.heading.lines), textOpts(s.heading.box, { size: s.heading.size, bold: true }));
   }
-  for (const r of s.rows) {
-    slide.addText(toText(r.lines), textOpts(r.box, {
-      size: r.size,
-      bold: r.type === 'section',
-      color: r.type === 'section' ? C.COLOR.muted : C.COLOR.ink,
-    }));
+  // One box, PowerPoint's own numbered bullets. This is what lets a sender
+  // click in, press Enter, and get the next number for free — the single
+  // biggest thing standing between this deck and being used as a template.
+  if (s.list) {
+    slide.addText(
+      s.list.entries.map((e) => ({ text: toText(e.lines), options: { breakLine: true } })),
+      {
+        ...textOpts(s.list.box, { size: s.list.size }),
+        bullet: { type: 'number', numberStartAt: s.list.startAt, indent: s.list.indent * 72 },
+      },
+    );
   }
   for (const t of s.tail || []) {
     slide.addText(t.text, textOpts(t.box, { size: t.size, color: C.COLOR.muted }));
@@ -202,6 +236,7 @@ function renderItem(pres, slide, s) {
     slide.addText(toText(s.body.lines), textOpts(s.body.box, { size: s.body.size }));
   }
 
+  if (s.placeholder) drawImagePlaceholder(slide, pres, s.placeholder);
   for (const im of s.images) drawImage(slide, pres, im);
 
   if (s.continuesNote) {
@@ -226,12 +261,72 @@ function renderItem(pres, slide, s) {
   drawFooter(slide, s);
 }
 
-function renderGrouped(pres, slide, s) {
-  drawChip(slide, pres, s.chip);
-  for (const b of s.blocks) {
-    slide.addText(toText(b.title.lines), textOpts(b.title.box, { size: b.title.size, bold: true }));
-    if (b.body) slide.addText(toText(b.body.lines), textOpts(b.body.box, { size: b.body.size }));
+/**
+ * Define one master per template variant.
+ *
+ * Native placeholders are what make these safe to ship: PowerPoint shows a
+ * "click to add" prompt while editing and renders nothing at all if the sender
+ * never touches them, unlike a drawn box which would print empty.
+ */
+function defineTemplateMasters(pres, templates) {
+  for (const t of templates) {
+    const objects = [
+      {
+        placeholder: {
+          options: {
+            name: 'title', type: 'title',
+            x: t.titleBox.x + 0.95, y: t.titleBox.y,
+            w: t.titleBox.w - 0.95, h: t.titleBox.h,
+            fontFace: C.FONT, fontSize: C.TYPE.slideHeader.size, bold: true, color: C.COLOR.ink,
+            margin: 0, valign: 'middle',
+          },
+          text: C.TEMPLATE_TITLE_PROMPT,
+        },
+      },
+      {
+        placeholder: {
+          options: {
+            name: 'body', type: 'body',
+            x: t.bodyBox.x, y: t.bodyBox.y, w: t.bodyBox.w, h: t.bodyBox.h,
+            fontFace: C.FONT, fontSize: C.TYPE.body.size, color: C.COLOR.ink,
+            margin: 0, valign: 'top',
+          },
+          text: C.TEMPLATE_BODY_PROMPT,
+        },
+      },
+    ];
+
+    t.images.forEach((box, i) => {
+      objects.push({
+        placeholder: {
+          options: {
+            name: `pic${i + 1}`, type: 'pic',
+            x: box.x, y: box.y, w: box.w, h: box.h,
+            fontFace: C.FONT, fontSize: C.TYPE.caption.size, color: C.COLOR.muted, align: 'center',
+          },
+          text: C.TEMPLATE_IMAGE_PROMPT,
+        },
+      });
+    });
+
+    pres.defineSlideMaster({ title: `${C.TEMPLATE_MASTER}_${t.variant}`, objects });
   }
+}
+
+/** A template slide: chrome drawn as usual, content left to the placeholders. */
+function renderTemplate(pres, slide, s) {
+  drawChip(slide, pres, s.header.chip);
+
+  slide.addShape(pres.ShapeType.roundRect, {
+    x: s.replyBox.box.x, y: s.replyBox.box.y, w: s.replyBox.box.w, h: s.replyBox.box.h,
+    rectRadius: REPLY_RADIUS,
+    fill: { color: C.COLOR.paper },
+    line: { color: C.COLOR.border, width: C.HAIRLINE },
+  });
+  slide.addText(s.replyBox.label, textOpts(s.replyBox.labelBox, {
+    size: C.TYPE.replyLabel.size, color: C.COLOR.muted,
+  }));
+
   drawLogo(slide, s.logo);
   drawFooter(slide, s);
 }
@@ -249,17 +344,21 @@ async function renderPptx(plan) {
   pres.defineLayout({ name: LAYOUT_NAME, width: C.SLIDE_W, height: C.SLIDE_H });
   pres.layout = LAYOUT_NAME;
 
+  defineTemplateMasters(pres, plan.slides.filter((s) => s.kind === 'template'));
+
   pres.author = plan.document.created_by || 'Wootz';
   pres.company = 'Wootz';
   pres.title = plan.document.report_title || 'Client communication';
 
   for (const s of plan.slides) {
-    const slide = pres.addSlide();
+    const slide = s.kind === 'template'
+      ? pres.addSlide({ masterName: `${C.TEMPLATE_MASTER}_${s.variant}` })
+      : pres.addSlide();
     slide.background = { color: C.COLOR.paper };
 
-    if (s.kind === 'cover') renderCover(pres, slide, s);
+    if (s.kind === 'template') renderTemplate(pres, slide, s);
+    else if (s.kind === 'cover') renderCover(pres, slide, s);
     else if (s.kind === 'contents') renderContents(pres, slide, s);
-    else if (s.kind === 'grouped') renderGrouped(pres, slide, s);
     else renderItem(pres, slide, s);
   }
 

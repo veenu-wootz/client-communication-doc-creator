@@ -4,9 +4,10 @@ Turns a Strike (Glide) form submission into a consistently formatted `.pptx` tha
 supplier's RFQ or Operations POC emails to their client — replacing the ad-hoc mix of
 loose email text, marked-up screenshots and hand-built slides that costs them time today.
 
-The document's one job is to make it unambiguous **how many answers are owed and which is
-which**: queries are numbered `Q1, Q2, Q3…` gaplessly, each gets a reply box, and a contents
-slide states the count. Updates travel in the same stream but are never numbered.
+Every point is numbered `1, 2, 3…` in the order it was written, each gets a reply box, and a
+summary slide lists them all. The deck is built to be **extended by hand**: the summary uses
+real PowerPoint auto-numbering, every slide is styled identically so any can be duplicated,
+and two blank template slides close the deck.
 
 **`PLAN.md` is the decision record** — product, format, and technical decisions, and every
 place this knowingly differs from [`docs/query-doc-format-spec.md`](docs/query-doc-format-spec.md). Read it before changing

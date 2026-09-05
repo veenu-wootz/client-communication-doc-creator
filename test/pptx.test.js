@@ -124,43 +124,63 @@ test('shapes respect the margins, with the footer band and cover logo excepted',
 
 // ── Numbering and the reply box ──────────────────────────────
 
-test('exactly one reply box per query, on its last slide, correctly numbered', async () => {
+test('exactly one reply box per item, on its last slide, correctly numbered', async () => {
   for (const name of Object.keys(fixtures)) {
     const { plan, slides } = await openDeck(name);
-    const flagged = new Map();
+    const byItem = new Map();
     plan.slides.forEach((s, i) => {
-      if (s.kind === 'item' && s.queryNo) {
-        if (!flagged.has(s.queryNo)) flagged.set(s.queryNo, []);
-        flagged.get(s.queryNo).push(i);
-      }
+      if (s.kind !== 'item') return;
+      if (!byItem.has(s.number)) byItem.set(s.number, []);
+      byItem.get(s.number).push(i);
     });
 
-    for (const [qNo, idxs] of flagged) {
-      const hits = idxs.filter((i) => textOf(slides[i]).includes(`Your response — Q${qNo}`));
-      assert.strictEqual(hits.length, 1, `${name}: Q${qNo} should have exactly one reply box`);
-      assert.strictEqual(hits[0], idxs[idxs.length - 1], `${name}: Q${qNo} reply box is not on the last slide`);
+    assert.ok(byItem.size > 0 || fixtures[name].items.length === 0,
+      `${name}: expected numbered items — this assertion must not pass vacuously`);
+
+    for (const [num, idxs] of byItem) {
+      const hits = idxs.filter((i) => textOf(slides[i]).includes(`Your response — ${num}`));
+      assert.strictEqual(hits.length, 1, `${name}: item ${num} should have exactly one reply box`);
+      assert.strictEqual(hits[0], idxs[idxs.length - 1], `${name}: item ${num} reply box is not on the last slide`);
       assert.ok(geometriesOf(slides[hits[0]]).includes('roundRect'), `${name}: reply box must be a roundRect`);
     }
   }
 });
 
-test('no query number appears anywhere on an unflagged item slide', async () => {
+test('the Q prefix is gone from every deck', async () => {
   for (const name of Object.keys(fixtures)) {
-    const { plan, slides } = await openDeck(name);
-    plan.slides.forEach((s, i) => {
-      if (s.kind !== 'item' || s.queryNo) return;
-      assert.ok(!/\bQ\d+\b/.test(textOf(slides[i])), `${name} slide ${i + 1}: update slide carries a query number`);
+    const { slides } = await openDeck(name);
+    slides.forEach((xml, i) => {
+      assert.ok(!/\bQ\d+\b/.test(textOf(xml)),
+        `${name} slide ${i + 1}: a Q-number survived the flat renumbering`);
     });
   }
 });
 
-test('every query slide repeats its number in the header chip', async () => {
+test('every slide of a multi-slide item repeats its number', async () => {
   const { plan, slides } = await openDeck('07-long-body-4-images');
+  let checked = 0;
   plan.slides.forEach((s, i) => {
-    if (s.kind === 'item' && s.queryNo) {
-      assert.ok(textOf(slides[i]).includes(`Q${s.queryNo}`), `slide ${i + 1} missing its Q number`);
-    }
+    if (s.kind !== 'item') return;
+    assert.ok(textOf(slides[i]).includes(String(s.number)), `slide ${i + 1} missing its number`);
+    checked += 1;
   });
+  assert.ok(checked > 1, 'expected a multi-slide item to actually be checked');
+});
+
+test('the summary renders as one numbered list, not a box per entry', async () => {
+  const { plan, slides, zip } = await openDeck('12-four-queries-two-updates');
+  const i = plan.slides.findIndex((s) => s.kind === 'contents');
+  assert.ok(i >= 0);
+
+  // buAutoNum is PowerPoint's own numbering; its presence is what makes Enter
+  // continue the list for whoever edits the deck.
+  const xml = await zip.file(`ppt/slides/slide${i + 1}.xml`).async('string');
+  assert.ok(xml.includes('buAutoNum'), 'summary must use real auto-numbering');
+
+  const text = textOf(slides[i]);
+  for (const title of ['Question 1', 'Fixture ready', 'Timeline']) {
+    assert.ok(text.includes(title), `summary missing "${title}"`);
+  }
 });
 
 // ── Content preservation ─────────────────────────────────────
@@ -197,7 +217,7 @@ test('the renderer emits every body line the planner placed', async () => {
 test('footers carry the page number and no total', async () => {
   const { plan, slides } = await openDeck('11-four-queries');
   plan.slides.forEach((s, i) => {
-    if (s.kind !== 'item' && s.kind !== 'grouped') return;
+    if (s.kind !== 'item' && s.kind !== 'template') return;
     const t = textOf(slides[i]);
     assert.ok(t.includes(`Page ${s.page}`), `slide ${i + 1} missing "Page ${s.page}"`);
     assert.ok(!/Page \d+ of/.test(t), 'footer must not carry a total');
