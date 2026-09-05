@@ -145,3 +145,20 @@ test('an API error is raised so the caller can log it, not swallowed', async () 
     });
   } finally { globalThis.fetch = real; }
 });
+
+test('a run that could not file the deck says so in the email', async () => {
+  // Otherwise an unfiled run looks identical to a filed one: the sender still
+  // receives the deck by email and nothing signals that it never reached the
+  // project folder.
+  const { buildHtml } = require('../src/deliver/sendEmail');
+  const plan = { meta: { itemCount: 2, totalSlides: 5 }, document: { report_title: 'T' }, slides: [] };
+
+  const filed = buildHtml(plan, 'https://example.com/deck.pptx', null);
+  assert.ok(filed.includes('Also stored at'), 'a filed deck links to it');
+  assert.ok(!filed.includes('Not filed'), 'and says nothing about failure');
+
+  const unfiled = buildHtml(plan, null, 'no destination — payload carried no folder_item_id');
+  assert.ok(unfiled.includes('Not filed to OneDrive'), 'an unfiled deck says so plainly');
+  assert.ok(unfiled.includes('folder_item_id'), 'and gives the actual reason');
+  assert.ok(unfiled.includes('nothing is lost'), 'while making clear the deck is attached');
+});

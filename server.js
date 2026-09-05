@@ -128,7 +128,10 @@ app.post('/generate', async (req, res) => {
     }
 
     // The guaranteed delivery path — always last, always attempted.
-    await sendDeckEmail(plan, buffer, filename, parsed.delivery, upload.url);
+    // If filing failed the sender must be told: the deck still reaches them by
+    // email, so an unfiled run otherwise looks identical to a successful one.
+    await sendDeckEmail(plan, buffer, filename, parsed.delivery, upload.url,
+      upload.url ? null : upload.reason);
 
     for (const w of plan.meta.warnings) console.log(`  ⚠ ${w}`);
     console.log(`✓ done in ${((Date.now() - started) / 1000).toFixed(1)}s — ${filename}\n`);

@@ -91,8 +91,12 @@ function normalize(doc) {
 
   return {
     document: {
-      report_title: clean(d.report_title ?? d.project_name),
-      reference_name: clean(d.reference_name ?? d.part_number),
+      // No cross-filling. parseStrikePayload is the single place that decides
+      // what each field holds; a fallback here quietly re-merged report_title
+      // and project_name after they were deliberately separated.
+      report_title: clean(d.report_title),
+      reference_name: clean(d.reference_name),
+      project_name: clean(d.project_name),
       addressee: clean(d.addressee),
       additional_details: clean(d.additional_details),
       created_by: clean(d.created_by),

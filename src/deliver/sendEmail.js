@@ -38,7 +38,7 @@ const isConfigured = () => Boolean(process.env.SMTP_USER && process.env.SMTP_PAS
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function buildHtml(plan, fileUrl) {
+function buildHtml(plan, fileUrl, fileNote = null) {
   const d = plan.document;
   // Every item, in order — the deck no longer separates queries from updates.
   const points = plan.slides
@@ -82,6 +82,9 @@ function buildHtml(plan, fileUrl) {
       ${fileUrl ? `<div style="background:#fff;padding:0 24px 18px;border:1px solid #D9DCE1;border-top:none;border-radius:0 0 8px 8px;">
         <p style="margin:0;font-size:12px;color:#6B7280;">Also stored at <a href="${esc(fileUrl)}" style="color:#0F4C5C;">this link</a>.</p>
       </div>` : ''}
+      ${!fileUrl && fileNote ? `<div style="background:#FFF6E5;padding:12px 24px;border:1px solid #E8D9B5;border-top:none;border-radius:0 0 8px 8px;">
+        <p style="margin:0;font-size:12px;color:#7A5B00;"><b>Not filed to OneDrive.</b> ${esc(fileNote)} The deck is attached, so nothing is lost \u2014 but it was not saved to the project folder.</p>
+      </div>` : ''}
     </div>`;
 }
 
@@ -92,7 +95,7 @@ function buildHtml(plan, fileUrl) {
  * @param {object} delivery   { to, cc, bcc }
  * @param {string|null} fileUrl
  */
-async function sendDeckEmail(plan, pptxBuffer, filename, delivery, fileUrl = null) {
+async function sendDeckEmail(plan, pptxBuffer, filename, delivery, fileUrl = null, fileNote = null) {
   if (!isConfigured()) {
     console.warn('  email: SMTP_USER/SMTP_PASSWORD not set — skipping send');
     return { skipped: true, reason: 'smtp not configured' };
@@ -121,7 +124,7 @@ async function sendDeckEmail(plan, pptxBuffer, filename, delivery, fileUrl = nul
     subject,
     text: `${d.report_title || 'Untitled'} — ${plan.meta.itemCount} points.\n`
         + `The deck is attached. Forward it to your client from your own mailbox so their reply comes back to you.`,
-    html: buildHtml(plan, fileUrl),
+    html: buildHtml(plan, fileUrl, fileNote),
     attachments: [{
       filename,
       content: pptxBuffer,
