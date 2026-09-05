@@ -55,7 +55,7 @@ test('the mutation carries every column, keyed by Glide\'s internal ids', async 
   assert.strictEqual(m.kind, 'set-columns-in-row');
   assert.strictEqual(m.rowID, 'ROW1');
   assert.deepStrictEqual(m.columnValues, {
-    QZRyl: 'V1',
+    YU0gy: 'V1',
     RcHZF: VALUES.fileId,
     g0KAH: VALUES.fileLink,
     TjmbZ: VALUES.generatedOn,
@@ -71,7 +71,7 @@ test('a missing value clears its cell rather than leaving the last run\'s answer
       { fileId: 'ID', fileLink: null, generatedOn: '2026-09-05T00:00:00Z', generatedBy: undefined })));
 
   assert.deepStrictEqual(sent.body.mutations[0].columnValues, {
-    QZRyl: '',                        // no version in the payload -> cleared
+    YU0gy: '',                        // no version in the payload -> cleared
     RcHZF: 'ID',
     g0KAH: '',                        // null -> cleared, not omitted
     TjmbZ: '2026-09-05T00:00:00Z',
@@ -161,4 +161,15 @@ test('a run that could not file the deck says so in the email', async () => {
   assert.ok(unfiled.includes('Not filed to OneDrive'), 'an unfiled deck says so plainly');
   assert.ok(unfiled.includes('folder_item_id'), 'and gives the actual reason');
   assert.ok(unfiled.includes('nothing is lost'), 'while making clear the deck is attached');
+});
+
+test('QZRyl is never written — it is the app\'s own folder id column', async () => {
+  // Writing the version there put "V5" where a OneDrive folder id belongs, and
+  // then blanked it. Nothing this service sends may name that column.
+  const sent = await withEnv({ GLIDE_TOKEN: 'test-token' }, () =>
+    capture(() => writeBackToGlide({ rowId: 'ROW1', version: 'V9' }, VALUES)));
+
+  const cols = Object.keys(sent.body.mutations[0].columnValues);
+  assert.ok(!cols.includes('QZRyl'), 'QZRyl belongs to Strike, not to us');
+  assert.strictEqual(sent.body.mutations[0].columnValues.YU0gy, 'V9', 'the version goes to YU0gy');
 });

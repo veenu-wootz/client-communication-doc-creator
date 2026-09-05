@@ -19,9 +19,15 @@ const TABLE  = (override) => override
   || process.env.GLIDE_TABLE
   || 'native-table-24696dcc-caaf-4bf8-a015-1e9ef394aa1b';
 
-/** canonical name → Glide's internal column id. */
+/**
+ * canonical name → Glide's internal column id.
+ *
+ * `YU0gy` is "RFQ Version Used". Do NOT use `QZRyl` here: that is the app's own
+ * "RFQ Folder Drive Item ID" column, written by Strike, and this service has no
+ * business touching it.
+ */
 const COLUMNS = () => ({
-  version:     process.env.GLIDE_COL_VERSION      || 'QZRyl',
+  version:     process.env.GLIDE_COL_VERSION      || 'YU0gy',
   fileId:      process.env.GLIDE_COL_FILE_ID      || 'RcHZF',
   fileLink:    process.env.GLIDE_COL_FILE_LINK    || 'g0KAH',
   generatedOn: process.env.GLIDE_COL_GENERATED_ON || 'TjmbZ',

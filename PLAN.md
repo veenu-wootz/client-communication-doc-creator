@@ -435,7 +435,7 @@ Glide's internal column ids via `mutateTables` / `set-columns-in-row`:
 
 | Column | id | Value |
 |---|---|---|
-| Query RFQ Version | `QZRyl` | `rfq_version` from the payload, echoed back |
+| RFQ Version Used | `YU0gy` | `rfq_version` from the payload, echoed back |
 | Query PPT File ID | `RcHZF` | the OneDrive **DriveItem id** |
 | Query PPT File Link | `g0KAH` | the deck's `webUrl` |
 | Query PPT Generated On | `TjmbZ` | ISO 8601 UTC |
@@ -453,6 +453,11 @@ date, and `"05 Sep 2026 8.34 PM"` would neither sort nor filter there. The
 readable form stays in the filename, where a person actually reads it. One
 `generatedAt` instant is taken at the top of `build()` and used for both, so they
 cannot disagree.
+
+**`QZRyl` must never be written.** It is the app's own *RFQ Folder Drive Item
+ID*, populated by Strike. The version was mapped to it by mistake, so runs wrote
+`V1`…`V5` over real folder ids and a later run blanked one. The version column
+is `YU0gy`; a test asserts nothing this service sends ever names `QZRyl`.
 
 **All five columns are written every time, blank included.** They are written
 only by this service and never by hand, so omitting a blank left the previous
